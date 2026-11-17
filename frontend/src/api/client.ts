@@ -55,6 +55,8 @@ export const api = {
       json("POST", { action, visual_intent: visualIntent, character_ids: characterIds, environment_ids: environmentIds, media_ids: mediaIds })),
   generateShot: (pid: string, sceneId: string, shotId: string) =>
     req<any>(`/api/projects/${pid}/scenes/${sceneId}/shots/${shotId}/generate`, { method: "POST" }),
+  deleteShot: (pid: string, sceneId: string, shotId: string) =>
+    req<any>(`/api/projects/${pid}/scenes/${sceneId}/shots/${shotId}`, { method: "DELETE" }),
 
   // générations
   createGeneration: (pid: string, kind: string, request: unknown) =>

@@ -42,3 +42,12 @@ def generate_shot(project_id: str, scene_id: str, shot_id: str, db: Session = De
         return services.request_shot_generation(db, project_id, shot_id, "image")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/scenes/{scene_id}/shots/{shot_id}")
+def delete_shot(project_id: str, scene_id: str, shot_id: str, db: Session = Depends(get_db)):
+    try:
+        services.delete_shot(db, shot_id)
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

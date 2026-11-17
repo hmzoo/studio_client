@@ -74,6 +74,11 @@ export default function App() {
     setShots({ ...shots, [sceneId]: await api.listShots(pid, sceneId) });
   }
   async function toggleShots(sceneId: string) { if (!pid) return; setShots({ ...shots, [sceneId]: await api.listShots(pid, sceneId) }); }
+  async function deleteShot(sceneId: string, shotId: string) {
+    if (!pid) return;
+    await api.deleteShot(pid, sceneId, shotId);
+    setShots({ ...shots, [sceneId]: await api.listShots(pid, sceneId) });
+  }
 
   async function generate(request: Record<string, unknown>) {
     if (!pid) return;
@@ -174,7 +179,9 @@ export default function App() {
                 <ShotForm sceneId={s.id} characters={characters} environments={environments} assets={assets} onCreate={createShot} />
                 {(shots[s.id] || []).map(sh => (
                   <div key={sh.id} style={{ marginLeft: 16, marginTop: 6, fontSize: 14, borderLeft: "2px solid #eee", paddingLeft: 8 }}>
-                    <div>#{sh.order} — <b>{sh.action}</b> <small>({sh.visual_intent})</small></div>
+                    <div>#{sh.order} — <b>{sh.action}</b> <small>({sh.visual_intent})</small>
+                      <button onClick={() => deleteShot(s.id, sh.id)} title="Supprimer le plan" style={{ marginLeft: 8 }}>✕</button>
+                    </div>
                     {sh.character_ids && <small>👤 {sh.character_ids.split(",").map(nameOf(characters)).join(", ")} </small>}
                     {sh.environment_ids && <small>🏞 {sh.environment_ids.split(",").map(nameOf(environments)).join(", ")} </small>}
                     <button onClick={() => generateShotImage(s.id, sh)}>🎨 Générer (image)</button>

@@ -306,3 +306,11 @@ def create_shot(db: Session, scene_id: str, action: str = "", visual_intent: str
 
 def list_shots(db: Session, scene_id: str) -> list[Shot]:
     return db.query(Shot).filter(Shot.scene_id == scene_id).order_by(Shot.order).all()
+
+
+def delete_shot(db: Session, shot_id: str) -> None:
+    sh = db.get(Shot, shot_id)
+    if sh is None:
+        raise ValueError("plan introuvable")
+    db.delete(sh)
+    db.commit()
