@@ -104,7 +104,7 @@ export default function App() {
               <button>Ajouter</button>
             </form>
             {refs.map(r => (
-              <RefCard key={r.id} ref={r} kind={refKind} pid={pid} assets={assets.filter(a => (r.media_ids || "").split(",").includes(a.id))} onChanged={refreshRefs} />
+              <RefCard key={r.id} item={r} kind={refKind} pid={pid} assets={assets.filter(a => (r.media_ids || "").split(",").includes(a.id))} onChanged={refreshRefs} />
             ))}
           </section>
 
@@ -171,39 +171,39 @@ export default function App() {
   );
 }
 
-function RefCard({ ref, kind, pid, assets, onChanged }: {
-  ref: Ref; kind: "character" | "environment"; pid: string; assets: Asset[];
+function RefCard({ item, kind, pid, assets, onChanged }: {
+  item: Ref; kind: "character" | "environment"; pid: string; assets: Asset[];
   onChanged: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState(ref.name);
-  const [description, setDescription] = useState(ref.initial_description);
+  const [name, setName] = useState(item.name);
+  const [description, setDescription] = useState(item.initial_description);
 
   async function save() {
-    await api.updateReference(pid, kind, ref.id, { name, description });
+    await api.updateReference(pid, kind, item.id, { name, description });
     await onChanged();
   }
   async function importFile(file: File) {
-    await api.importReference(pid, kind, ref.id, file);
+    await api.importReference(pid, kind, item.id, file);
     await onChanged();
   }
   async function analyze() {
-    await api.analyzeReference(pid, kind, ref.id);
+    await api.analyzeReference(pid, kind, item.id);
     await new Promise(r => setTimeout(r, 1500));
     await onChanged();
   }
   async function unlink(assetId: string) {
-    await api.unlinkReferenceAsset(pid, kind, ref.id, assetId);
+    await api.unlinkReferenceAsset(pid, kind, item.id, assetId);
     await onChanged();
   }
 
   return (
     <div style={{ border: "1px solid #ccc", padding: 10, margin: 8, borderRadius: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <b>{ref.name}</b>
+        <b>{item.name}</b>
         <button onClick={() => setOpen(!open)}>{open ? "Fermer" : "Modifier"}</button>
       </div>
-      {!open && <p style={{ fontSize: 14 }}>{ref.initial_description || "(pas de description)"}</p>}
+      {!open && <p style={{ fontSize: 14 }}>{item.initial_description || "(pas de description)"}</p>}
       {open && (
         <div style={{ marginTop: 8 }}>
           <label>Nom<br /><input value={name} onChange={e => setName(e.target.value)} /></label><br />
@@ -221,7 +221,7 @@ function RefCard({ ref, kind, pid, assets, onChanged }: {
           </div>
           <input type="file" onChange={e => e.target.files && importFile(e.target.files[0])} />
           <button onClick={analyze}>Analyser (vision)</button>
-          {ref.approved_description && <p><i>Approuvé : {ref.approved_description}</i></p>}
+          {item.approved_description && <p><i>Approuvé : {item.approved_description}</i></p>}
         </div>
       )}
     </div>
