@@ -30,17 +30,19 @@ docker compose up --build
 
 ## Migrations de base
 
-Le chemin propre est Alembic :
+La migration initiale est générée dans `backend/migrations/versions/`.
 
 ```bash
 cd backend
 pip install -e .[dev]
-alembic revision --autogenerate -m "initial"
-alembic upgrade head
+alembic upgrade head            # applique les migrations
+# pour générer une nouvelle migration :
+# DATABASE_URL=sqlite:////tmp/mig.db alembic revision --autogenerate -m "..."
 ```
 
-Pour la démo uniquement, le backend crée le schéma au démarrage
-(`Base.metadata.create_all`) — ne pas utiliser en production.
+En Docker Compose, le backend exécute `alembic upgrade head` automatiquement au
+démarrage (voir le `CMD` du Dockerfile). Pour la démo locale, le backend crée
+aussi le schéma au démarrage (`Base.metadata.create_all`) — idempotent.
 
 ## Tests
 
