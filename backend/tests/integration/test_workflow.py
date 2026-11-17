@@ -218,3 +218,42 @@ def test_video_requires_refs(client):
     r = client.post(f"/api/projects/{pid}/generations", json={"kind": "video", "request": {"prompt": "x"}})
     assert r.status_code == 404
     assert "référence" in r.json()["detail"]
+
+
+def test_run_sequence_auto_keyframe(client):
+    pid = _create_project(client)
+    scene = client.post(f"/api/projects/{pid}/scenes", json={"title": "S", "narrative": "", "order": 0}).json()
+    r = client.post(f"/api/projects/{pid}/scenes/{scene['id']}/shots",
+                    json={"action": "a", "visual_intent": "v", "order": 0})
+    shot_id = r.json()["id"]
+    r = client.post(f"/api/projects/{pid}/scenes/{scene['id']}/generate-sequence")
+    task_id = r.json()["id"]
+
+    gw = MagicMock()
+    gw.simulated = True
+    gw.generate_text.return_value = type("T", (), {"text": "{}", "model": "mock", "schema_valid": True,
+                                                   "data": {"prompt": "un plan", "reference_image": None}})()
+    gw.generate_image.return_value = type("O", (), {"job": type("J", (), {"job_id": "imgjob", "status": "queued"})(), "direct": None})()
+    gw.generate_video.return_value = type("O", (), {"job": type("J", (), {"job_id": "vjob", "status": "queued"})(), "direct": None})()
+
+    def get_job(job_id):
+        if job_id == "imgjob":
+            return type("S", (), {"status": "succeeded",
+                                 "result": {"images": [{"url": "fake://media/key.png"}]},
+                                 "error": None, "kind": "image"})()
+        return type("S", (), {"status": "succeeded",
+                             "result": {"video": {"url": "fake://media/clip.mp4"}},
+                             "error": None, "kind": "video"})()
+
+    gw.get_job.side_effect = get_job
+    gw.download_media.return_value = _TINY_PNG
+    with patch.object(workflow, "get_gateway", return_value=gw):
+        run_worker_once()
+
+    task = client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "succeeded"
+    assert gw.generate_image.call_count == 1
+    assert gw.generate_video.call_count == 1
+    shot = client.get(f"/api/projects/{pid}/scenes/{scene['id']}/shots").json()[0]
+    # keyframe + clip liés au plan
+    assert len(shot["media_ids"].split(",")) == 2

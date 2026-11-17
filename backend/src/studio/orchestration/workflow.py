@@ -237,9 +237,12 @@ def _process_sequence(db: Session, task: Task) -> None:
         prompt = st.get("prompt") or shot.action or shot.visual_intent or ""
         refs = _shot_refs(db, shot) or prev_refs
         if not refs:
-            results.append({"shot_id": shot_id, "status": "failed",
-                            "error": "aucune image de référence pour ce plan (liez un visuel ou générez un keyframe)"})
-            continue
+            key = _generate_keyframe(db, project_id, shot, prompt)
+            if key is None:
+                results.append({"shot_id": shot_id, "status": "failed",
+                                "error": "échec de génération automatique du keyframe"})
+                continue
+            refs = [key]
         request: dict = {"prompt": prompt, "width": 864, "height": 480, "frames": 124, "refs": refs[:3]}
         gen = Generation(project_id=project_id, kind="video", status="pending",
                          request_snapshot=json.dumps(request, ensure_ascii=False))
@@ -333,3 +336,36 @@ def _link_clip_to_shot(db: Session, shot: Shot, gen: Generation) -> None:
         ids.append(asset.id)
     shot.media_ids = ",".join(ids)
     db.add(shot)
+
+
+def _result_image_urls(gen: Generation) -> list[str]:
+    try:
+        res = json.loads(gen.result or "{}")
+        return [i.get("url") for i in (res.get("images") or [])
+                if isinstance(i, dict) and i.get("url")]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _generate_keyframe(db: Session, project_id: str, shot: Shot, prompt: str) -> str | None:
+    """Génère un keyframe (image) pour un plan sans visuel de référence."""
+    req = {"prompt": prompt, "width": 1024, "height": 1024, "steps": 28}
+    gen = Generation(project_id=project_id, kind="image", status="pending",
+                     request_snapshot=json.dumps(req, ensure_ascii=False))
+    db.add(gen)
+    db.flush()
+    _generate_blocking(db, gen)
+    if gen.status != "succeeded":
+        return None
+    urls = _result_image_urls(gen)
+    if not urls:
+        return None
+    assets = db.query(Asset).filter(Asset.external_url.in_(urls),
+                                    Asset.project_id == project_id).all()
+    ids = [i for i in (shot.media_ids or "").split(",") if i]
+    for a in assets:
+        if a.id not in ids:
+            ids.append(a.id)
+    shot.media_ids = ",".join(ids)
+    db.add(shot)
+    return urls[0]
