@@ -23,3 +23,23 @@ ANALYSIS_PROMPT = (
     "Décris les caractéristiques visibles de cette référence, puis propose des "
     "complétions utiles (vues manquantes, détails à confirmer)."
 )
+
+# Schéma du prompt de génération construit à partir d'un plan.
+SHOT_PROMPT_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "prompt": {"type": "string", "description": "Prompt de génération, en anglais"},
+        "reference_image": {"type": ["string", "null"],
+                            "description": "URL du visuel de référence à utiliser, ou null"},
+    },
+    "required": ["prompt"],
+    "additionalProperties": True,
+}
+
+SHOT_PROMPT_SYSTEM = (
+    "Tu construis un prompt de génération d'image à partir d'un plan de tournage. "
+    "Utilise l'action et l'intention visuelle, ainsi que les descriptions des références "
+    "fournies (personnages, environnements). Écris un prompt visuel précis en anglais, "
+    "et choisis éventuellement un visuel de référence parmi ceux proposés. "
+    "Réponds en JSON conforme au schéma demandé."
+)

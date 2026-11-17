@@ -44,11 +44,12 @@ export const api = {
   listScenes: (pid: string) => req<any[]>(`/api/projects/${pid}/scenes`),
   createScene: (pid: string, title: string, narrative: string) =>
     req<any>(`/api/projects/${pid}/scenes`, json("POST", { title, narrative })),
-  listShots: (pid: string, sceneId: string) => req<any[]>(`/api/projects/${pid}/scenes/${sceneId}/shots`),
-  createShot: (pid: string, sceneId: string, action: string, visualIntent: string,
+  listShots: (pid: string, sceneId: string) => req<any[]>(`/api/projects/${pid}/scenes/${sceneId}/shots`),  createShot: (pid: string, sceneId: string, action: string, visualIntent: string,
                characterIds: string[] = [], environmentIds: string[] = [], mediaIds: string[] = []) =>
     req<any>(`/api/projects/${pid}/scenes/${sceneId}/shots`,
       json("POST", { action, visual_intent: visualIntent, character_ids: characterIds, environment_ids: environmentIds, media_ids: mediaIds })),
+  generateShot: (pid: string, sceneId: string, shotId: string) =>
+    req<any>(`/api/projects/${pid}/scenes/${sceneId}/shots/${shotId}/generate`, { method: "POST" }),
 
   // générations
   createGeneration: (pid: string, kind: string, request: unknown) =>

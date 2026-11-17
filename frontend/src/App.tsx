@@ -81,16 +81,10 @@ export default function App() {
     setAssets(await api.listAssets(pid));
   }
 
-  async function generateShotImage(shot: Shot) {
+  async function generateShotImage(sceneId: string, shot: Shot) {
     if (!pid) return;
-    const media = assets.find(a => shot.media_ids.split(",").includes(a.id));
-    const request: Record<string, unknown> = {
-      prompt: `${shot.action} — ${shot.visual_intent}`.trim(),
-      width: 1024, height: 1024, steps: 28,
-    };
-    if (media?.external_url) request.image = media.external_url;
-    await api.createGeneration(pid, "image", request);
-    await new Promise(r => setTimeout(r, 1500));
+    await api.generateShot(pid, sceneId, shot.id); // l'agent construit le prompt en tâche de fond
+    await new Promise(r => setTimeout(r, 3000));
     setGens(await api.listGenerations(pid));
     setAssets(await api.listAssets(pid));
   }
@@ -170,7 +164,7 @@ export default function App() {
                     <div>#{sh.order} — <b>{sh.action}</b> <small>({sh.visual_intent})</small></div>
                     {sh.character_ids && <small>👤 {sh.character_ids.split(",").map(nameOf(characters)).join(", ")} </small>}
                     {sh.environment_ids && <small>🏞 {sh.environment_ids.split(",").map(nameOf(environments)).join(", ")} </small>}
-                    <button onClick={() => generateShotImage(sh)}>🎨 Générer (image)</button>
+                    <button onClick={() => generateShotImage(s.id, sh)}>🎨 Générer (image)</button>
                   </div>
                 ))}
               </div>

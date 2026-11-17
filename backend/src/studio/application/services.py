@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import json
 
-from jsonschema import Draft202012Validator
 from sqlalchemy.orm import Session
 
 from .. import storage
-from ..agents.prompts import ANALYSIS_PROMPT, ANALYSIS_SCHEMA, ANALYSIS_SYSTEM_PROMPT
 from ..clients import get_gateway
 from ..clients.interface import (
     GatewayError,
@@ -153,45 +151,12 @@ def request_analysis(db: Session, project_id: str, kind: str, ref_id: str) -> Ta
 
 
 def _run_analysis(db: Session, task: Task) -> None:
+    """L'analyse vit désormais dans agents.reference_analyzer — gardé pour compatibilité."""
+    from ..agents.base import AgentRuntime
+    from ..agents.reference_analyzer import analyze_reference
     payload = json.loads(task.payload)
-    ref = get_reference(db, payload["project_id"], payload["kind"], payload["ref_id"])
-    assets = db.query(Asset).filter(Asset.id.in_([i for i in (ref.media_ids or "").split(",") if i])).all()
-    images = [a.external_url for a in assets if a.external_url]
-
-    req = TextRequest(
-        prompt=ANALYSIS_PROMPT,
-        system=ANALYSIS_SYSTEM_PROMPT,
-        images=images or None,
-        response_format={"type": "json_schema", "schema": ANALYSIS_SCHEMA},
-        temperature=0.3,
-        max_tokens=2000,
-    )
-    result = _gateway().generate_text(req)
-
-    if result.schema_valid is not True or result.data is None:
-        raise RuntimeError("réponse structurée invalide de la passerelle")
-
-    # Revalidation locale contre le schéma attendu
-    try:
-        Draft202012Validator(ANALYSIS_SCHEMA).validate(result.data)
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError("données non conformes au schéma attendu") from e
-
-    data = result.data
-    proposal = CompletionProposal(
-        project_id=payload["project_id"],
-        subject_type=payload["kind"],
-        subject_id=payload["ref_id"],
-        content=(data.get("description") or ""),
-        references=json.dumps({
-            "key_traits": data.get("key_traits", []),
-            "missing_views": data.get("missing_views", []),
-            "suggestions": data.get("suggestions", []),
-        }, ensure_ascii=False),
-        status="pending",
-    )
-    db.add(proposal)
-    db.commit()
+    state = {"project_id": payload["project_id"], "kind": payload["kind"], "reference_id": payload["ref_id"]}
+    analyze_reference(state, AgentRuntime(db=db, gateway=_gateway()))
 
 
 # --------------------------------------------------------------------------- #
@@ -254,6 +219,18 @@ def request_generation(db: Session, project_id: str, kind: str, request: dict) -
     db.commit()
     db.refresh(gen)
     return gen
+
+
+def request_shot_generation(db: Session, project_id: str, shot_id: str, kind: str = "image") -> Task:
+    """Génération pilotée par un plan : l'agent construit le prompt en tâche de fond."""
+    if db.get(Shot, shot_id) is None:
+        raise ValueError("plan introuvable")
+    task = Task(kind="generate_shot", status="pending",
+                payload=json.dumps({"project_id": project_id, "shot_id": shot_id, "kind": kind}))
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
 
 
 def list_generations(db: Session, project_id: str) -> list[Generation]:

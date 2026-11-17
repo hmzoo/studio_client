@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from ..application import services
 from ..database import get_db
-from ..schemas.dto import SceneCreate, SceneOut, ShotCreate, ShotOut
+from ..schemas.dto import SceneCreate, SceneOut, ShotCreate, ShotOut, TaskOut
 
 router = APIRouter()
 
@@ -33,3 +33,12 @@ def create_shot(project_id: str, scene_id: str, body: ShotCreate, db: Session = 
 @router.get("/scenes/{scene_id}/shots", response_model=list[ShotOut])
 def list_shots(project_id: str, scene_id: str, db: Session = Depends(get_db)):
     return services.list_shots(db, scene_id)
+
+
+@router.post("/scenes/{scene_id}/shots/{shot_id}/generate", response_model=TaskOut)
+def generate_shot(project_id: str, scene_id: str, shot_id: str, db: Session = Depends(get_db)):
+    """Déclenche une génération pilotée par un agent à partir du plan."""
+    try:
+        return services.request_shot_generation(db, project_id, shot_id, "image")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

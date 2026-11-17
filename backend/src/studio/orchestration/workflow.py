@@ -12,6 +12,8 @@ from dataclasses import asdict
 from sqlalchemy.orm import Session
 
 from .. import storage
+from ..agents.base import AgentRuntime
+from ..agents.prompt_builder import build_shot_prompt
 from ..application.services import _run_analysis
 from ..clients import get_gateway
 from ..clients.interface import GatewayError, ImageRequest, TextRequest, VideoRequest
@@ -24,11 +26,44 @@ def process_task(db: Session, task: Task) -> None:
         _run_analysis(db, task)
         task.status = "succeeded"
         return
+    if task.kind == "generate_shot":
+        _process_generate_shot(db, task)
+        return
     if task.kind.startswith("generate_"):
         _process_generation(db, task)
         return
     task.status = "failed"
     task.last_error = f"type de tâche inconnu : {task.kind}"
+
+
+def _process_generate_shot(db: Session, task: Task) -> None:
+    """L'agent construit le prompt du plan, puis on génère (soumission + suivi)."""
+    payload = json.loads(task.payload)
+    rt = AgentRuntime(db=db, gateway=get_gateway())
+    state = build_shot_prompt({"project_id": payload["project_id"], "shot_id": payload["shot_id"]}, rt)
+
+    kind = payload.get("kind", "image")
+    request: dict = {"prompt": state.get("prompt") or ""}
+    if state.get("reference_image"):
+        request["image"] = state["reference_image"]
+    if kind == "video":
+        request.setdefault("width", 864)
+        request.setdefault("height", 480)
+        request.setdefault("frames", 124)
+    else:
+        request.setdefault("width", 1024)
+        request.setdefault("height", 1024)
+        request.setdefault("steps", 28)
+
+    gen = Generation(project_id=payload["project_id"], kind=kind, status="pending",
+                     request_snapshot=json.dumps(request, ensure_ascii=False))
+    db.add(gen)
+    db.flush()
+    # le plan est résolu : la tâche devient une simple tâche de génération
+    task.kind = f"generate_{kind}"
+    task.payload = json.dumps({"project_id": payload["project_id"], "generation_id": gen.id})
+    db.commit()
+    _process_generation(db, task)
 
 
 def _process_generation(db: Session, task: Task) -> None:
