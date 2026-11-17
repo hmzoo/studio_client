@@ -58,6 +58,8 @@ export default function App() {
     if (!pid) return;
     setCharacters(await api.listReferences(pid, "character"));
     setEnvironments(await api.listReferences(pid, "environment"));
+    setProposals(await api.listProposals(pid));
+    setGens(await api.listGenerations(pid));
     setAssets(await api.listAssets(pid));
   }
 
@@ -247,10 +249,14 @@ function RefCard({ item, kind, pid, assets, proposals, onChanged, onDecide }: {
   async function generateVisual() {
     setMsg("génération du visuel…");
     try {
-      await api.generateReferenceVisual(pid, kind, item.id);
-      await new Promise(r => setTimeout(r, 3000));
-      setMsg("");
-      await onChanged();
+      const gen = await api.generateReferenceVisual(pid, kind, item.id);
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const g = await api.getGeneration(pid, gen.id);
+        if (g.status === "succeeded") { setMsg("visuel généré ✓"); await onChanged(); return; }
+        if (g.status === "failed") { setMsg("échec : " + (g.error || "")); return; }
+      }
+      setMsg("délai dépassé");
     } catch (e) { setMsg("erreur : " + e); }
   }
 
