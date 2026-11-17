@@ -62,3 +62,43 @@ IMPROVE_SYSTEM = (
     "sans inventer d'éléments contradictoires avec la source. Réponds en JSON conforme "
     "au schéma demandé."
 )
+
+
+# Pilotage de l'orchestrateur par chat.
+CHAT_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "reply": {"type": "string", "description": "Réponse à l'utilisateur, en français, concise"},
+        "action": {
+            "type": ["object", "null"],
+            "properties": {
+                "type": {"type": "string", "enum": [
+                    "generate_sequence", "analyze_reference", "improve_reference",
+                    "generate_shot_image", "create_scene", "create_shot",
+                    "create_reference", "none",
+                ]},
+                "scene_id": {"type": "string"},
+                "shot_id": {"type": "string"},
+                "kind": {"type": "string", "enum": ["character", "environment"]},
+                "ref_id": {"type": "string"},
+                "title": {"type": "string"},
+                "narrative": {"type": "string"},
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+            },
+            "required": ["type"],
+        },
+    },
+    "required": ["reply"],
+    "additionalProperties": True,
+}
+
+CHAT_SYSTEM = (
+    "Tu es l'orchestrateur du Studio : tu aides l'utilisateur à construire un projet "
+    "vidéo (références, scènes, plans) et à lancer des générations. "
+    "Tu réponds en français, de façon concise. Quand l'utilisateur demande une action "
+    "(générer une séquence, analyser une référence, améliorer une description, générer "
+    "l'image d'un plan, créer une scène/un plan/une référence), tu renvoies l'action "
+    "correspondante avec ses paramètres en t'appuyant sur les identifiants du contexte. "
+    "Si aucune action n'est nécessaire, mets action à null."
+)

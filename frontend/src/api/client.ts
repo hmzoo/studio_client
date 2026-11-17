@@ -59,6 +59,8 @@ export const api = {
     req<any>(`/api/projects/${pid}/scenes/${sceneId}/shots/${shotId}`, { method: "DELETE" }),
   generateSequence: (pid: string, sceneId: string) =>
     req<any>(`/api/projects/${pid}/scenes/${sceneId}/generate-sequence`, { method: "POST" }),
+  chat: (pid: string, message: string) =>
+    req<any>(`/api/projects/${pid}/chat`, { method: "POST", body: JSON.stringify({ message }) }),
 
   // générations
   createGeneration: (pid: string, kind: string, request: unknown) =>

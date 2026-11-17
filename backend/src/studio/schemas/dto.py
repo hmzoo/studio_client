@@ -77,6 +77,10 @@ class GenerationCreate(BaseModel):
     request: dict[str, Any]
 
 
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+
+
 class SceneCreate(BaseModel):
     title: str = ""
     narrative: str = ""

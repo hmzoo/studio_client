@@ -29,6 +29,11 @@ export default function App() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [genKind, setGenKind] = useState<"image" | "video" | "text">("image");
   const [seqMsg, setSeqMsg] = useState<Record<string, string>>({});
+  const [view, setView] = useState<"construction" | "chat">("construction");
+  type ChatMsg = { role: "user" | "assistant"; text: string; action?: any; outcome?: any };
+  const [chat, setChat] = useState<ChatMsg[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
 
   async function refreshProjects() {
     setErr("");
@@ -127,6 +132,28 @@ export default function App() {
     } catch (e) { setSeqMsg({ ...seqMsg, [sceneId]: "erreur : " + e }); }
   }
 
+  async function sendChat() {
+    const text = chatInput.trim();
+    if (!pid || !text || chatBusy) return;
+    setChatInput("");
+    setChat([...chat, { role: "user", text }]);
+    setChatBusy(true);
+    try {
+      const r = await api.chat(pid, text);
+      setChat(c => [...c, { role: "assistant", text: r.reply, action: r.action, outcome: r.outcome }]);
+      await loadProject(pid);
+    } catch (e) {
+      setChat(c => [...c, { role: "assistant", text: "erreur : " + e }]);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  const tab = (active: boolean) => ({
+    padding: "7px 16px", borderRadius: 8, border: "1px solid #ccc",
+    background: active ? "#7c5cff" : "#fff", color: active ? "#fff" : "#222", cursor: "pointer", fontWeight: 600,
+  });
+
   const nameOf = (list: Ref[]) => (id: string) => list.find(r => r.id === id)?.name || id.slice(0, 6);
 
   return (
@@ -150,97 +177,112 @@ export default function App() {
         </section>
       ) : (
         <div>
-          <button onClick={() => setPid(null)}>← Projets</button>
-          <details style={{ background: "#f4f4f8", padding: 10, borderRadius: 8, margin: "8px 0" }}>
-            <summary style={{ cursor: "pointer", fontWeight: 600 }}>Comment utiliser Studio</summary>
-            <ol style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: 14 }}>
-              <li>Dans « Références », ajoute un personnage/environnement (nom + description).</li>
-              <li>Ouvre sa fiche (« Modifier ») → importe une image → « Analyser (vision) ».</li>
-              <li>Dans « Complétions proposées », approuve ou rejette la description.</li>
-              <li>Dans « Scènes et plans », ajoute une scène puis un plan (action + intention + sélections).</li>
-              <li>Clique « 🎨 Générer (image) » sur un plan — l'agent construit le prompt et génère.</li>
-              <li>Résultats dans « Générations » et « Médiathèque ».</li>
-            </ol>
-          </details>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "8px 0" }}>
+            <button onClick={() => setPid(null)}>← Projets</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setView("construction")} style={tab(view === "construction")}>🧱 Construction</button>
+              <button onClick={() => setView("chat")} style={tab(view === "chat")}>💬 Piloter</button>
+            </div>
+          </div>
 
-          <section>
-            <h2>Références</h2>
-            <select value={refKind} onChange={e => setRefKind(e.target.value as "character" | "environment")}>
-              <option value="character">Personnages</option>
-              <option value="environment">Environnements</option>
-            </select>
-            <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); createRef(String(f.get("name")), String(f.get("description"))); (e.target as HTMLFormElement).reset(); }} style={{ display: "inline" }}>
-              <input name="name" placeholder={`Nom (${refKind})`} />
-              <input name="description" placeholder="Description" style={{ width: 260 }} />
-              <button>Ajouter</button>
-            </form>
-            {refs.map(r => (
-              <RefCard key={r.id} item={r} kind={refKind} pid={pid} assets={assets.filter(a => (r.media_ids || "").split(",").includes(a.id))} proposals={proposals.filter(p => p.subject_id === r.id)} onChanged={refreshRefs} onDecide={decide} />
-            ))}
-          </section>
+          {view === "construction" ? (
+            <>
+              <details style={{ background: "#f4f4f8", padding: 10, borderRadius: 8, margin: "8px 0" }}>
+                <summary style={{ cursor: "pointer", fontWeight: 600 }}>Comment utiliser Studio</summary>
+                <ol style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: 14 }}>
+                  <li>Dans « Références », ajoute un personnage/environnement (nom + description).</li>
+                  <li>Ouvre sa fiche (« Modifier ») → importe une image → « Analyser (vision) » puis approuve la proposition.</li>
+                  <li>Dans « Scénario », ajoute une scène puis des plans (action + intention + références).</li>
+                  <li>Génère des keyframes (🎨) puis la séquence (🎬) — ou pilote tout depuis l'onglet 💬.</li>
+                </ol>
+              </details>
 
-          <section>
-            <h2>Complétions proposées</h2>
-            {proposals.map(p => (
-              <div key={p.id} style={{ border: "1px solid #ddd", padding: 8, margin: 8 }}>
-                <p>{p.content}</p>
-                <small>{p.references}</small>
-                <p>statut : {p.status}</p>
-                {p.status === "pending" && (<>
-                  <button onClick={() => decide(p.id, "approved")}>Approuver</button>
-                  <button onClick={() => decide(p.id, "rejected")}>Rejeter</button>
-                </>)}
-              </div>
-            ))}
-            {!proposals.length && <p>Aucune proposition.</p>}
-          </section>
+              <section>
+                <h2>Références</h2>
+                <select value={refKind} onChange={e => setRefKind(e.target.value as "character" | "environment")}>
+                  <option value="character">Personnages</option>
+                  <option value="environment">Environnements</option>
+                </select>
+                <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); createRef(String(f.get("name")), String(f.get("description"))); (e.target as HTMLFormElement).reset(); }} style={{ display: "inline" }}>
+                  <input name="name" placeholder={`Nom (${refKind})`} />
+                  <input name="description" placeholder="Description" style={{ width: 260 }} />
+                  <button>Ajouter</button>
+                </form>
+                {refs.map(r => (
+                  <RefCard key={r.id} item={r} kind={refKind} pid={pid} assets={assets.filter(a => (r.media_ids || "").split(",").includes(a.id))} proposals={proposals.filter(p => p.subject_id === r.id)} onChanged={refreshRefs} onDecide={decide} />
+                ))}
+              </section>
 
-          <section>
-            <h2>Scènes et plans</h2>
-            <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); createScene(String(f.get("title")), String(f.get("narrative"))); (e.target as HTMLFormElement).reset(); }}>
-              <input name="title" placeholder="Titre de la scène" />
-              <input name="narrative" placeholder="Description narrative" />
-              <button>Ajouter une scène</button>
-            </form>
-            {scenes.map(s => (
-              <div key={s.id} style={{ border: "1px solid #ddd", padding: 8, margin: 8 }}>
-                <b>{s.title || `Scène ${s.order}`}</b>
-                <p>{s.narrative}</p>
-                <button onClick={() => toggleShots(s.id)}>Plans ({shots[s.id]?.length ?? "…"})</button>
-                <button onClick={() => generateSequence(s.id)}>🎬 Générer la séquence</button>
-                {seqMsg[s.id] && <small style={{ marginLeft: 8, color: "#666" }}>{seqMsg[s.id]}</small>}
-                <ShotForm sceneId={s.id} characters={characters} environments={environments} assets={assets} onCreate={createShot} />
-                {(shots[s.id] || []).map(sh => (
-                  <div key={sh.id} style={{ marginLeft: 16, marginTop: 6, fontSize: 14, borderLeft: "2px solid #eee", paddingLeft: 8 }}>
-                    <div>#{sh.order} — <b>{sh.action}</b> <small>({sh.visual_intent})</small>
-                      <button onClick={() => deleteShot(s.id, sh.id)} title="Supprimer le plan" style={{ marginLeft: 8 }}>✕</button>
-                    </div>
-                    {sh.character_ids && <small>👤 {sh.character_ids.split(",").map(nameOf(characters)).join(", ")} </small>}
-                    {sh.environment_ids && <small>🏞 {sh.environment_ids.split(",").map(nameOf(environments)).join(", ")} </small>}
-                    <button onClick={() => generateShotImage(s.id, sh)}>🎨 Générer (image)</button>
+              <section>
+                <h2>Scénario (scènes et plans)</h2>
+                <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); createScene(String(f.get("title")), String(f.get("narrative"))); (e.target as HTMLFormElement).reset(); }}>
+                  <input name="title" placeholder="Titre de la scène" />
+                  <input name="narrative" placeholder="Description narrative" />
+                  <button>Ajouter une scène</button>
+                </form>
+                {scenes.map(s => (
+                  <div key={s.id} style={{ border: "1px solid #ddd", padding: 8, margin: 8 }}>
+                    <b>{s.title || `Scène ${s.order}`}</b>
+                    <p>{s.narrative}</p>
+                    <button onClick={() => toggleShots(s.id)}>Plans ({shots[s.id]?.length ?? "…"})</button>
+                    <button onClick={() => generateSequence(s.id)}>🎬 Générer la séquence</button>
+                    {seqMsg[s.id] && <small style={{ marginLeft: 8, color: "#666" }}>{seqMsg[s.id]}</small>}
+                    <ShotForm sceneId={s.id} characters={characters} environments={environments} assets={assets} onCreate={createShot} />
+                    {(shots[s.id] || []).map(sh => (
+                      <div key={sh.id} style={{ marginLeft: 16, marginTop: 6, fontSize: 14, borderLeft: "2px solid #eee", paddingLeft: 8 }}>
+                        <div>#{sh.order} — <b>{sh.action}</b> <small>({sh.visual_intent})</small>
+                          <button onClick={() => deleteShot(s.id, sh.id)} title="Supprimer le plan" style={{ marginLeft: 8 }}>✕</button>
+                        </div>
+                        {sh.character_ids && <small>👤 {sh.character_ids.split(",").map(nameOf(characters)).join(", ")} </small>}
+                        {sh.environment_ids && <small>🏞 {sh.environment_ids.split(",").map(nameOf(environments)).join(", ")} </small>}
+                        <button onClick={() => generateShotImage(s.id, sh)}>🎨 Générer (image)</button>
+                      </div>
+                    ))}
                   </div>
                 ))}
+              </section>
+
+              <section>
+                <h2>Éléments générés</h2>
+                <GenForm kind={genKind} setKind={setGenKind} onSubmit={generate} />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                  {assets.map(a => (
+                    <figure key={a.id} style={{ margin: 0 }}>
+                      {a.kind === "video"
+                        ? <video src={api.assetUrl(a.id)} width={200} controls />
+                        : <img src={api.assetUrl(a.id)} width={120} alt={a.kind} />}
+                      <figcaption style={{ fontSize: 11 }}>{a.kind}{a.is_simulated ? " · simulé" : ""}</figcaption>
+                    </figure>
+                  ))}
+                </div>
+                <details style={{ marginTop: 8 }}>
+                  <summary>Générations (statuts)</summary>
+                  <ul>{gens.map(g => <li key={g.id}>{g.kind} — {g.status}{g.external_job_id ? ` (job ${g.external_job_id})` : ""}</li>)}</ul>
+                </details>
+              </section>
+            </>
+          ) : (
+            <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, height: "72vh", display: "flex", flexDirection: "column" }}>
+              <h2 style={{ marginTop: 0 }}>💬 Piloter l'orchestrateur</h2>
+              <div style={{ flex: 1, overflowY: "auto", marginBottom: 8 }}>
+                {chat.length === 0 && <p style={{ color: "#888" }}>Décris ce que tu veux construire ou générer — ex. « crée une scène puis génère la séquence », « analyse le personnage X », « génère le keyframe du plan 1 ».</p>}
+                {chat.map((m, i) => (
+                  <div key={i} style={{ margin: "6px 0", textAlign: m.role === "user" ? "right" : "left" }}>
+                    <div style={{ display: "inline-block", maxWidth: "80%", padding: "8px 12px", borderRadius: 10, background: m.role === "user" ? "#7c5cff" : "#f0f0f3", color: m.role === "user" ? "#fff" : "#111", whiteSpace: "pre-wrap" }}>
+                      {m.text}
+                      {m.outcome && m.outcome.error && <div style={{ color: "#b00", fontSize: 12 }}>⚠ {m.outcome.error}</div>}
+                      {m.action && m.action.type && m.action.type !== "none" && <div style={{ fontSize: 11, opacity: 0.7 }}>→ {m.action.type}</div>}
+                    </div>
+                  </div>
+                ))}
+                {chatBusy && <p style={{ color: "#888" }}>…</p>}
               </div>
-            ))}
-          </section>
-
-          <section>
-            <h2>Générations</h2>
-            <GenForm kind={genKind} setKind={setGenKind} onSubmit={generate} />
-            <ul>{gens.map(g => <li key={g.id}>{g.kind} — {g.status}{g.external_job_id ? ` (job ${g.external_job_id})` : ""}</li>)}</ul>
-          </section>
-
-          <section>
-            <h2>Médiathèque</h2>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {assets.map(a => (
-                <figure key={a.id} style={{ margin: 0 }}>
-                  <img src={api.assetUrl(a.id)} width={120} alt={a.kind} />
-                  <figcaption style={{ fontSize: 11 }}>{a.kind}{a.is_simulated ? " · simulé" : ""}</figcaption>
-                </figure>
-              ))}
-            </div>
-          </section>
+              <form onSubmit={e => { e.preventDefault(); sendChat(); }} style={{ display: "flex", gap: 6 }}>
+                <input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Pilote l'orchestrateur…" style={{ flex: 1 }} />
+                <button disabled={chatBusy}>Envoyer</button>
+              </form>
+            </section>
+          )}
         </div>
       )}
     </div>

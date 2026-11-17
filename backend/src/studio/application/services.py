@@ -6,6 +6,7 @@ import json
 from sqlalchemy.orm import Session
 
 from .. import storage
+from ..agents.prompts import CHAT_SCHEMA, CHAT_SYSTEM
 from ..clients import get_gateway
 from ..clients.interface import (
     GatewayError,
@@ -330,3 +331,74 @@ def delete_shot(db: Session, shot_id: str) -> None:
         raise ValueError("plan introuvable")
     db.delete(sh)
     db.commit()
+
+
+def chat_orchestrator(db: Session, project_id: str, message: str) -> dict:
+    """Pilotage de l'orchestrateur par chat : réponse + exécution d'une action."""
+    get_project(db, project_id)
+    summary = _project_summary(db, project_id)
+    result = _gateway().generate_text(TextRequest(
+        prompt=f"État du projet :\n{summary}\n\nMessage de l'utilisateur : {message}",
+        system=CHAT_SYSTEM,
+        response_format={"type": "json_schema", "schema": CHAT_SCHEMA},
+        temperature=0.4,
+        max_tokens=1200,
+    ))
+    data = result.data if getattr(result, "schema_valid", False) else None
+    reply = (data or {}).get("reply") if data else (result.text or "Je n'ai pas pu traiter la demande.")
+    action = (data or {}).get("action") if data else None
+    outcome = _execute_chat_action(db, project_id, action)
+    return {"reply": reply, "action": action, "outcome": outcome}
+
+
+def _project_summary(db: Session, project_id: str) -> str:
+    chars = db.query(Character).filter(Character.project_id == project_id).order_by(Character.created_at).all()
+    envs = db.query(Environment).filter(Environment.project_id == project_id).order_by(Environment.created_at).all()
+    scenes = db.query(Scene).filter(Scene.project_id == project_id).order_by(Scene.order).all()
+    scene_ids = [s.id for s in scenes]
+    shots = db.query(Shot).filter(Shot.scene_id.in_(scene_ids)).order_by(Shot.order).all() if scene_ids else []
+    pending = db.query(CompletionProposal).filter(
+        CompletionProposal.project_id == project_id, CompletionProposal.status == "pending").count()
+    lines = [f"Personnages : {', '.join(f'{c.name} (id={c.id})' for c in chars) or 'aucun'}",
+             f"Environnements : {', '.join(f'{e.name} (id={e.id})' for e in envs) or 'aucun'}"]
+    for s in scenes:
+        ss = [sh for sh in shots if sh.scene_id == s.id]
+        lines.append(f"Scène id={s.id} ordre={s.order} « {s.title} » : {len(ss)} plan(s)")
+        for sh in ss:
+            lines.append(f"  plan id={sh.id} ordre={sh.order} : {sh.action} — {sh.visual_intent}")
+    if pending:
+        lines.append(f"Propositions en attente : {pending}")
+    return "\n".join(lines)
+
+
+def _execute_chat_action(db: Session, project_id: str, action: dict | None) -> dict | None:
+    if not action:
+        return None
+    t = action.get("type")
+    if t in (None, "none"):
+        return None
+    try:
+        if t == "generate_sequence":
+            task = request_sequence(db, project_id, action["scene_id"])
+            return {"task_id": task.id, "kind": task.kind}
+        if t == "analyze_reference":
+            task = request_analysis(db, project_id, action.get("kind", "character"), action["ref_id"])
+            return {"task_id": task.id, "kind": task.kind}
+        if t == "improve_reference":
+            task = request_improve_reference(db, project_id, action.get("kind", "character"), action["ref_id"])
+            return {"task_id": task.id, "kind": task.kind}
+        if t == "generate_shot_image":
+            task = request_shot_generation(db, project_id, action["shot_id"], "image")
+            return {"task_id": task.id, "kind": task.kind}
+        if t == "create_scene":
+            sc = create_scene(db, project_id, action.get("title", ""), action.get("narrative", ""), 0)
+            return {"scene_id": sc.id}
+        if t == "create_shot":
+            sh = create_shot(db, action["scene_id"], action.get("action", ""), action.get("visual_intent", ""), 0, [], [], [])
+            return {"shot_id": sh.id, "scene_id": sh.scene_id}
+        if t == "create_reference":
+            ref = create_reference(db, project_id, action.get("kind", "character"), action.get("name", ""), action.get("description", ""))
+            return {"ref_id": ref.id}
+        return {"error": f"action inconnue : {t}"}
+    except (ValueError, KeyError) as e:
+        return {"error": str(e)}

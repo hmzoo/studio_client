@@ -227,6 +227,15 @@ def test_video_requires_refs(client):
     assert "référence" in r.json()["detail"]
 
 
+def test_chat_orchestrator(client):
+    pid = _create_project(client)
+    r = client.post(f"/api/projects/{pid}/chat", json={"message": "génère la séquence"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "reply" in body
+    assert body.get("outcome") is None  # le fake ne produit pas d'action
+
+
 def test_run_sequence_auto_keyframe(client):
     pid = _create_project(client)
     scene = client.post(f"/api/projects/{pid}/scenes", json={"title": "S", "narrative": "", "order": 0}).json()
