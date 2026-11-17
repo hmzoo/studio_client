@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: studio
+      POSTGRES_PASSWORD: studio
+      POSTGRES_DB: studio
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build: ./backend
+    environment: &env
+      DATABASE_URL: postgresql+psycopg://studio:studio@postgres:5432/studio
+      GENERATION_GATEWAY_MODE: ${GENERATION_GATEWAY_MODE:-fake}
+      GENERATION_API_BASE_URL: ${GENERATION_API_BASE_URL:-}
+      GENERATION_API_KEY: ${GENERATION_API_KEY:-}
+      GENERATION_API_AUTH_HEADER: ${GENERATION_API_AUTH_HEADER:-Authorization}
+      GENERATION_API_AUTH_SCHEME: ${GENERATION_API_AUTH_SCHEME:-Bearer}
+      GENERATION_CONNECT_TIMEOUT: ${GENERATION_CONNECT_TIMEOUT:-10}
+      GENERATION_READ_TIMEOUT: ${GENERATION_READ_TIMEOUT:-600}
+      GENERATION_POLL_INTERVAL: ${GENERATION_POLL_INTERVAL:-2}
+      GENERATION_MAX_TRACK_SECONDS: ${GENERATION_MAX_TRACK_SECONDS:-600}
+      STUDIO_STORAGE_DIR: /media
+      TRUSTED_MEDIA_ORIGINS: ${TRUSTED_MEDIA_ORIGINS:-}
+    volumes:
+      - media:/media
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+  worker:
+    build: ./backend
+    command: ["python", "-m", "studio.workers.worker"]
+    environment: *env
+    volumes:
+      - media:/media
+    depends_on:
+      - postgres
+      - backend
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  media:

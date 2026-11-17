@@ -1,0 +1,147 @@
+"""Workflow applicatif explicite, à états persistés.
+
+Frontière d'orchestration : la boucle est ici un simple dispatch de tâches.
+Une migration vers LangGraph remplacera `process_task` sans toucher au métier.
+"""
+from __future__ import annotations
+
+import json
+import time
+from dataclasses import asdict
+
+from sqlalchemy.orm import Session
+
+from .. import storage
+from ..application.services import _run_analysis
+from ..clients import get_gateway
+from ..clients.interface import GatewayError, ImageRequest, TextRequest, VideoRequest
+from ..config import settings
+from ..domain.models import Asset, Generation, Task
+
+
+def process_task(db: Session, task: Task) -> None:
+    if task.kind == "analyze_reference":
+        _run_analysis(db, task)
+        task.status = "succeeded"
+        return
+    if task.kind.startswith("generate_"):
+        _process_generation(db, task)
+        return
+    task.status = "failed"
+    task.last_error = f"type de tâche inconnu : {task.kind}"
+
+
+def _process_generation(db: Session, task: Task) -> None:
+    payload = json.loads(task.payload)
+    gen = db.get(Generation, payload["generation_id"])
+    if gen is None:
+        task.status = "failed"
+        task.last_error = "génération introuvable"
+        return
+    gw = get_gateway()
+    snapshot = json.loads(gen.request_snapshot or "{}")
+    kind = gen.kind
+
+    # --- phase soumission (une seule fois, jamais de relance aveugle) --------
+    if not gen.external_job_id and gen.status == "pending":
+        try:
+            if kind == "image":
+                outcome = gw.generate_image(ImageRequest(**snapshot), async_exec=True)
+            elif kind == "video":
+                outcome = gw.generate_video(VideoRequest(**snapshot), async_exec=True)
+            elif kind == "text":
+                result = gw.generate_text(TextRequest(**snapshot))
+                gen.status = "succeeded"
+                gen.result = json.dumps({"text": result.text, "model": result.model,
+                                         "data": result.data, "schema_valid": result.schema_valid},
+                                        ensure_ascii=False, default=str)
+                task.status = "succeeded"
+                return
+            else:
+                raise ValueError(f"kind inconnu : {kind}")
+        except Exception as e:  # noqa: BLE001 — on ne sait pas si la demande a été acceptée
+            gen.status = "needs_reconciliation"
+            gen.error = json.dumps({"code": "submission_timeout", "message": str(e)[:300]}, ensure_ascii=False)
+            task.status = "needs_reconciliation"
+            return
+
+        if outcome.job is not None:
+            gen.external_job_id = outcome.job.job_id
+            gen.status = "running"
+        else:
+            _finalize_direct(db, gen, outcome.direct)
+            task.status = "succeeded"
+            return
+
+    # --- phase suivi (job_id connu) ------------------------------------------
+    try:
+        status = gw.get_job(gen.external_job_id)
+    except GatewayError as e:
+        gen.status = "needs_reconciliation"
+        gen.error = json.dumps({"code": "track_failed", "message": str(e)[:300]}, ensure_ascii=False)
+        task.status = "needs_reconciliation"
+        return
+
+    if status.status == "succeeded":
+        _finalize_job(db, gen, status.result)
+        task.status = "succeeded"
+        return
+    if status.status == "failed":
+        gen.status = "failed"
+        gen.error = json.dumps(status.error or {"code": "generation_failed"}, ensure_ascii=False, default=str)
+        task.status = "failed"
+        return
+    if status.status == "needs_reconciliation":
+        gen.status = "needs_reconciliation"
+        task.status = "needs_reconciliation"
+        return
+    if status.status in ("queued", "running"):
+        # toujours en cours : on reprend la consultation plus tard (bornée dans le temps)
+        elapsed = time.time() - (gen.created_at.timestamp() if gen.created_at else time.time())
+        if elapsed > settings.generation_max_track_seconds:
+            gen.status = "needs_reconciliation"
+            task.status = "needs_reconciliation"
+            return
+        task.status = "pending"  # nouvelle passe de suivi, SANS nouvelle soumission
+        return
+    # état inconnu : conservé et signalé, jamais interprété comme succès/échec
+    gen.status = "needs_reconciliation"
+    gen.error = json.dumps({"code": "unknown_external_state", "message": f"état externe inconnu : {status.status}"},
+                           ensure_ascii=False)
+    task.status = "needs_reconciliation"
+
+
+def _finalize_direct(db: Session, gen: Generation, direct) -> None:
+    if direct is None:
+        gen.status = "failed"
+        gen.error = json.dumps({"code": "generation_failed", "message": "résultat direct vide"})
+        return
+    raw = asdict(direct) if hasattr(direct, "__dataclass_fields__") else direct
+    _download_result(db, gen, raw)
+
+
+def _finalize_job(db: Session, gen: Generation, result) -> None:
+    _download_result(db, gen, result or {})
+
+
+def _download_result(db: Session, gen: Generation, result) -> None:
+    gw = get_gateway()
+    urls: list[tuple[str, str, str]] = []
+    if isinstance(result, dict):
+        for i in result.get("images", []) or []:
+            if isinstance(i, dict) and i.get("url"):
+                urls.append((i["url"], "image", ".png"))
+        v = result.get("video")
+        if isinstance(v, dict) and v.get("url"):
+            urls.append((v["url"], "video", ".mp4"))
+    for url, kind, ext in urls:
+        try:
+            data = gw.download_media(url)
+        except GatewayError:
+            continue
+        rel = storage.save_media(data, ext, gen.project_id)
+        db.add(Asset(project_id=gen.project_id, kind=kind, origin="gateway", local_path=rel,
+                     mime_type="image/png" if kind == "image" else "video/mp4",
+                     external_url=url, is_simulated=getattr(gw, "simulated", False)))
+    gen.result = json.dumps(result, ensure_ascii=False, default=str)
+    gen.status = "succeeded"

@@ -1,0 +1,238 @@
+"""Services applicatifs : logique métier (sans logique d'agents)."""
+from __future__ import annotations
+
+import json
+
+from jsonschema import Draft202012Validator
+from sqlalchemy.orm import Session
+
+from .. import storage
+from ..agents.prompts import ANALYSIS_PROMPT, ANALYSIS_SCHEMA, ANALYSIS_SYSTEM_PROMPT
+from ..clients import get_gateway
+from ..clients.interface import (
+    GatewayError,
+    ImageRequest,
+    TextRequest,
+    VideoRequest,
+)
+from ..domain.models import (
+    Asset,
+    Character,
+    CompletionProposal,
+    Environment,
+    Generation,
+    Project,
+    Task,
+)
+
+
+def _gateway():
+    return get_gateway()
+
+
+# --------------------------------------------------------------------------- #
+# Projets
+# --------------------------------------------------------------------------- #
+def create_project(db: Session, name: str, description: str) -> Project:
+    p = Project(name=name, description=description)
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return p
+
+
+def list_projects(db: Session) -> list[Project]:
+    return db.query(Project).order_by(Project.created_at.desc()).all()
+
+
+def get_project(db: Session, project_id: str) -> Project:
+    p = db.get(Project, project_id)
+    if p is None:
+        raise ValueError("projet introuvable")
+    return p
+
+
+# --------------------------------------------------------------------------- #
+# Références (personnages / environnements)
+# --------------------------------------------------------------------------- #
+_REF_MODELS = {"character": Character, "environment": Environment}
+
+
+def create_reference(db: Session, project_id: str, kind: str, name: str, description: str):
+    get_project(db, project_id)
+    model = _REF_MODELS[kind]
+    ref = model(project_id=project_id, name=name, initial_description=description)
+    db.add(ref)
+    db.commit()
+    db.refresh(ref)
+    return ref
+
+
+def list_references(db: Session, project_id: str, kind: str):
+    model = _REF_MODELS[kind]
+    return db.query(model).filter(model.project_id == project_id).all()
+
+
+def get_reference(db: Session, project_id: str, kind: str, ref_id: str):
+    model = _REF_MODELS[kind]
+    ref = db.get(model, ref_id)
+    if ref is None or ref.project_id != project_id:
+        raise ValueError("référence introuvable")
+    return ref
+
+
+def _link_media(db: Session, ref, asset_id: str) -> None:
+    ids = [i for i in (ref.media_ids or "").split(",") if i]
+    if asset_id not in ids:
+        ids.append(asset_id)
+    ref.media_ids = ",".join(ids)
+    db.add(ref)
+
+
+def import_reference_image(db: Session, project_id: str, kind: str, ref_id: str,
+                           filename: str, data: bytes) -> Asset:
+    """Copie locale + import dans la passerelle + lien à la référence."""
+    ref = get_reference(db, project_id, kind, ref_id)
+    ext = ("." + filename.rsplit(".", 1)[-1]) if "." in filename else ".png"
+    local_rel = storage.save_media(data, ext, project_id)
+    try:
+        meta = _gateway().upload_asset(filename, data)
+    except GatewayError as e:
+        raise RuntimeError(f"import passerelle échoué : {e}") from e
+    asset = Asset(
+        project_id=project_id, kind="image", origin="gateway",
+        local_path=local_rel, mime_type=meta.mime_type, width=meta.width, height=meta.height,
+        external_id=meta.asset_id, external_url=meta.url,
+        is_simulated=getattr(_gateway(), "simulated", False),
+    )
+    db.add(asset)
+    db.flush()
+    _link_media(db, ref, asset.id)
+    db.commit()
+    db.refresh(asset)
+    return asset
+
+
+# --------------------------------------------------------------------------- #
+# Analyse vision (tâche worker)
+# --------------------------------------------------------------------------- #
+def request_analysis(db: Session, project_id: str, kind: str, ref_id: str) -> Task:
+    get_reference(db, project_id, kind, ref_id)
+    task = Task(kind="analyze_reference", status="pending",
+                payload=json.dumps({"project_id": project_id, "kind": kind, "ref_id": ref_id}))
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def _run_analysis(db: Session, task: Task) -> None:
+    payload = json.loads(task.payload)
+    ref = get_reference(db, payload["project_id"], payload["kind"], payload["ref_id"])
+    assets = db.query(Asset).filter(Asset.id.in_([i for i in (ref.media_ids or "").split(",") if i])).all()
+    images = [a.external_url for a in assets if a.external_url]
+
+    req = TextRequest(
+        prompt=ANALYSIS_PROMPT,
+        system=ANALYSIS_SYSTEM_PROMPT,
+        images=images or None,
+        response_format={"type": "json_schema", "schema": ANALYSIS_SCHEMA},
+        temperature=0.3,
+        max_tokens=2000,
+    )
+    result = _gateway().generate_text(req)
+
+    if result.schema_valid is not True or result.data is None:
+        raise RuntimeError("réponse structurée invalide de la passerelle")
+
+    # Revalidation locale contre le schéma attendu
+    try:
+        Draft202012Validator(ANALYSIS_SCHEMA).validate(result.data)
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError("données non conformes au schéma attendu") from e
+
+    data = result.data
+    proposal = CompletionProposal(
+        project_id=payload["project_id"],
+        subject_type=payload["kind"],
+        subject_id=payload["ref_id"],
+        content=(data.get("description") or ""),
+        references=json.dumps({
+            "key_traits": data.get("key_traits", []),
+            "missing_views": data.get("missing_views", []),
+            "suggestions": data.get("suggestions", []),
+        }, ensure_ascii=False),
+        status="pending",
+    )
+    db.add(proposal)
+    db.commit()
+
+
+# --------------------------------------------------------------------------- #
+# Complétions : approbation / rejet
+# --------------------------------------------------------------------------- #
+def decide_proposal(db: Session, project_id: str, proposal_id: str, status: str, comment: str) -> CompletionProposal:
+    p = db.get(CompletionProposal, proposal_id)
+    if p is None or p.project_id != project_id:
+        raise ValueError("proposition introuvable")
+    p.status = status
+    p.validation_comment = comment
+    if status == "approved":
+        ref = get_reference(db, project_id, p.subject_type, p.subject_id)
+        # Approbation explicite uniquement : aucune écriture silencieuse.
+        ref.approved_description = p.content
+        db.add(ref)
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return p
+
+
+def list_proposals(db: Session, project_id: str) -> list[CompletionProposal]:
+    return db.query(CompletionProposal).filter(CompletionProposal.project_id == project_id).all()
+
+
+# --------------------------------------------------------------------------- #
+# Générations
+# --------------------------------------------------------------------------- #
+def _resolve_request_refs(db: Session, kind: str, request: dict) -> dict:
+    """Résout les identifiants d'assets locaux vers leurs URLs externes."""
+    def r(v):
+        if isinstance(v, str):
+            a = db.get(Asset, v)
+            if a is not None and a.external_url:
+                return a.external_url
+        return v
+    out = dict(request)
+    if kind == "image" and "image" in out:
+        out["image"] = r(out["image"])
+    if kind == "video" and "refs" in out:
+        out["refs"] = [r(x) for x in out["refs"]]
+    if kind == "text" and "images" in out:
+        out["images"] = [r(x) for x in out["images"]]
+    return out
+
+
+def request_generation(db: Session, project_id: str, kind: str, request: dict) -> Generation:
+    get_project(db, project_id)
+    snapshot = _resolve_request_refs(db, kind, request)
+    gen = Generation(
+        project_id=project_id, kind=kind, status="pending",
+        request_snapshot=json.dumps(snapshot, ensure_ascii=False),
+    )
+    db.add(gen)
+    db.flush()
+    task = Task(kind=f"generate_{kind}", status="pending",
+                payload=json.dumps({"project_id": project_id, "generation_id": gen.id}))
+    db.add(task)
+    db.commit()
+    db.refresh(gen)
+    return gen
+
+
+def list_generations(db: Session, project_id: str) -> list[Generation]:
+    return db.query(Generation).filter(Generation.project_id == project_id).order_by(Generation.created_at.desc()).all()
+
+
+def list_assets(db: Session, project_id: str) -> list[Asset]:
+    return db.query(Asset).filter(Asset.project_id == project_id).order_by(Asset.created_at).all()
