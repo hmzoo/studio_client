@@ -95,6 +95,9 @@ class ShotCreate(BaseModel):
     action: str = ""
     visual_intent: str = ""
     order: int = 0
+    character_ids: list[str] = []
+    environment_ids: list[str] = []
+    media_ids: list[str] = []
 
 
 class ShotOut(BaseModel):
@@ -103,6 +106,9 @@ class ShotOut(BaseModel):
     order: int
     action: str
     visual_intent: str
+    character_ids: str = ""
+    environment_ids: str = ""
+    media_ids: str = ""
 
 
 class GenerationOut(BaseModel):

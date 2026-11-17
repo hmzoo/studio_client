@@ -24,7 +24,8 @@ def list_scenes(project_id: str, db: Session = Depends(get_db)):
 @router.post("/scenes/{scene_id}/shots", response_model=ShotOut)
 def create_shot(project_id: str, scene_id: str, body: ShotCreate, db: Session = Depends(get_db)):
     try:
-        return services.create_shot(db, scene_id, body.action, body.visual_intent, body.order)
+        return services.create_shot(db, scene_id, body.action, body.visual_intent, body.order,
+                                    body.character_ids, body.environment_ids, body.media_ids)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

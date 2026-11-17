@@ -280,10 +280,17 @@ def list_scenes(db: Session, project_id: str) -> list[Scene]:
     return db.query(Scene).filter(Scene.project_id == project_id).order_by(Scene.order).all()
 
 
-def create_shot(db: Session, scene_id: str, action: str = "", visual_intent: str = "", order: int = 0) -> Shot:
+def create_shot(db: Session, scene_id: str, action: str = "", visual_intent: str = "", order: int = 0,
+                character_ids: list[str] | None = None, environment_ids: list[str] | None = None,
+                media_ids: list[str] | None = None) -> Shot:
     if db.get(Scene, scene_id) is None:
         raise ValueError("scène introuvable")
-    sh = Shot(scene_id=scene_id, action=action, visual_intent=visual_intent, order=order)
+    sh = Shot(
+        scene_id=scene_id, action=action, visual_intent=visual_intent, order=order,
+        character_ids=",".join(character_ids or []),
+        environment_ids=",".join(environment_ids or []),
+        media_ids=",".join(media_ids or []),
+    )
     db.add(sh)
     db.commit()
     db.refresh(sh)

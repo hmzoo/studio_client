@@ -4,9 +4,9 @@ import { api } from "./api/client";
 type Ref = { id: string; name: string; initial_description: string; approved_description: string | null; media_ids: string };
 type Proposal = { id: string; content: string; status: string; references: string };
 type Generation = { id: string; kind: string; status: string; external_job_id: string | null };
-type Asset = { id: string; kind: string; is_simulated: boolean };
+type Asset = { id: string; kind: string; is_simulated: boolean; external_url?: string };
 type Scene = { id: string; order: number; title: string; narrative: string };
-type Shot = { id: string; order: number; action: string; visual_intent: string };
+type Shot = { id: string; order: number; action: string; visual_intent: string; character_ids: string; environment_ids: string; media_ids: string };
 
 const GEN_DEFAULTS: Record<string, Record<string, number>> = {
   image: { width: 1024, height: 1024, steps: 28 },
@@ -20,7 +20,8 @@ export default function App() {
   const [err, setErr] = useState("");
 
   const [refKind, setRefKind] = useState<"character" | "environment">("character");
-  const [refs, setRefs] = useState<Ref[]>([]);
+  const [characters, setCharacters] = useState<Ref[]>([]);
+  const [environments, setEnvironments] = useState<Ref[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [shots, setShots] = useState<Record<string, Shot[]>>({});
@@ -37,10 +38,11 @@ export default function App() {
   }
   useEffect(() => { refreshProjects(); }, []);
 
-  async function loadProject(id: string, kind: "character" | "environment") {
+  async function loadProject(id: string) {
     setErr("");
     try {
-      setRefs(await api.listReferences(id, kind));
+      setCharacters(await api.listReferences(id, "character"));
+      setEnvironments(await api.listReferences(id, "environment"));
       setProposals(await api.listProposals(id));
       setScenes(await api.listScenes(id));
       setGens(await api.listGenerations(id));
@@ -48,17 +50,27 @@ export default function App() {
       setShots({});
     } catch (e) { setErr(String(e)); }
   }
+  function openProject(id: string) { setPid(id); loadProject(id); }
 
-  function openProject(id: string) { setPid(id); loadProject(id, "character"); }
+  const refs = refKind === "character" ? characters : environments;
 
-  async function refreshRefs() { if (pid) { setRefs(await api.listReferences(pid, refKind)); setAssets(await api.listAssets(pid)); } }
+  async function refreshRefs() {
+    if (!pid) return;
+    setCharacters(await api.listReferences(pid, "character"));
+    setEnvironments(await api.listReferences(pid, "environment"));
+    setAssets(await api.listAssets(pid));
+  }
 
   async function createProject(name: string) { await api.createProject(name); refreshProjects(); }
   async function createRef(name: string, description: string) { if (!pid) return; await api.createReference(pid, refKind, name, description); refreshRefs(); }
   async function decide(proposalId: string, status: string) { if (!pid) return; await api.decideProposal(pid, proposalId, status); setProposals(await api.listProposals(pid)); refreshRefs(); }
 
   async function createScene(title: string, narrative: string) { if (!pid) return; await api.createScene(pid, title, narrative); setScenes(await api.listScenes(pid)); }
-  async function createShot(sceneId: string, action: string, intent: string) { if (!pid) return; await api.createShot(pid, sceneId, action, intent); setShots({ ...shots, [sceneId]: await api.listShots(pid, sceneId) }); }
+  async function createShot(sceneId: string, action: string, intent: string, chars: string[], envs: string[], meds: string[]) {
+    if (!pid) return;
+    await api.createShot(pid, sceneId, action, intent, chars, envs, meds);
+    setShots({ ...shots, [sceneId]: await api.listShots(pid, sceneId) });
+  }
   async function toggleShots(sceneId: string) { if (!pid) return; setShots({ ...shots, [sceneId]: await api.listShots(pid, sceneId) }); }
 
   async function generate(request: Record<string, unknown>) {
@@ -68,6 +80,22 @@ export default function App() {
     setGens(await api.listGenerations(pid));
     setAssets(await api.listAssets(pid));
   }
+
+  async function generateShotImage(shot: Shot) {
+    if (!pid) return;
+    const media = assets.find(a => shot.media_ids.split(",").includes(a.id));
+    const request: Record<string, unknown> = {
+      prompt: `${shot.action} — ${shot.visual_intent}`.trim(),
+      width: 1024, height: 1024, steps: 28,
+    };
+    if (media?.external_url) request.image = media.external_url;
+    await api.createGeneration(pid, "image", request);
+    await new Promise(r => setTimeout(r, 1500));
+    setGens(await api.listGenerations(pid));
+    setAssets(await api.listAssets(pid));
+  }
+
+  const nameOf = (list: Ref[]) => (id: string) => list.find(r => r.id === id)?.name || id.slice(0, 6);
 
   return (
     <div style={{ fontFamily: "system-ui", maxWidth: 960, margin: "0 auto", padding: 16 }}>
@@ -94,7 +122,7 @@ export default function App() {
 
           <section>
             <h2>Références</h2>
-            <select value={refKind} onChange={e => { const k = e.target.value as "character" | "environment"; setRefKind(k); loadProject(pid, k); }}>
+            <select value={refKind} onChange={e => setRefKind(e.target.value as "character" | "environment")}>
               <option value="character">Personnages</option>
               <option value="environment">Environnements</option>
             </select>
@@ -136,13 +164,14 @@ export default function App() {
                 <b>{s.title || `Scène ${s.order}`}</b>
                 <p>{s.narrative}</p>
                 <button onClick={() => toggleShots(s.id)}>Plans ({shots[s.id]?.length ?? "…"})</button>
-                <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); createShot(s.id, String(f.get("action")), String(f.get("intent"))); (e.target as HTMLFormElement).reset(); }} style={{ marginTop: 6 }}>
-                  <input name="action" placeholder="Action" />
-                  <input name="intent" placeholder="Intention visuelle" />
-                  <button>Ajouter un plan</button>
-                </form>
+                <ShotForm sceneId={s.id} characters={characters} environments={environments} assets={assets} onCreate={createShot} />
                 {(shots[s.id] || []).map(sh => (
-                  <div key={sh.id} style={{ marginLeft: 16, fontSize: 14 }}>#{sh.order} — {sh.action} <small>({sh.visual_intent})</small></div>
+                  <div key={sh.id} style={{ marginLeft: 16, marginTop: 6, fontSize: 14, borderLeft: "2px solid #eee", paddingLeft: 8 }}>
+                    <div>#{sh.order} — <b>{sh.action}</b> <small>({sh.visual_intent})</small></div>
+                    {sh.character_ids && <small>👤 {sh.character_ids.split(",").map(nameOf(characters)).join(", ")} </small>}
+                    {sh.environment_ids && <small>🏞 {sh.environment_ids.split(",").map(nameOf(environments)).join(", ")} </small>}
+                    <button onClick={() => generateShotImage(sh)}>🎨 Générer (image)</button>
+                  </div>
                 ))}
               </div>
             ))}
@@ -179,23 +208,10 @@ function RefCard({ item, kind, pid, assets, onChanged }: {
   const [name, setName] = useState(item.name);
   const [description, setDescription] = useState(item.initial_description);
 
-  async function save() {
-    await api.updateReference(pid, kind, item.id, { name, description });
-    await onChanged();
-  }
-  async function importFile(file: File) {
-    await api.importReference(pid, kind, item.id, file);
-    await onChanged();
-  }
-  async function analyze() {
-    await api.analyzeReference(pid, kind, item.id);
-    await new Promise(r => setTimeout(r, 1500));
-    await onChanged();
-  }
-  async function unlink(assetId: string) {
-    await api.unlinkReferenceAsset(pid, kind, item.id, assetId);
-    await onChanged();
-  }
+  async function save() { await api.updateReference(pid, kind, item.id, { name, description }); await onChanged(); }
+  async function importFile(file: File) { await api.importReference(pid, kind, item.id, file); await onChanged(); }
+  async function analyze() { await api.analyzeReference(pid, kind, item.id); await new Promise(r => setTimeout(r, 1500)); await onChanged(); }
+  async function unlink(assetId: string) { await api.unlinkReferenceAsset(pid, kind, item.id, assetId); await onChanged(); }
 
   return (
     <div style={{ border: "1px solid #ccc", padding: 10, margin: 8, borderRadius: 8 }}>
@@ -225,6 +241,35 @@ function RefCard({ item, kind, pid, assets, onChanged }: {
         </div>
       )}
     </div>
+  );
+}
+
+function ShotForm({ sceneId, characters, environments, assets, onCreate }: {
+  sceneId: string; characters: Ref[]; environments: Ref[]; assets: Asset[];
+  onCreate: (sceneId: string, action: string, intent: string, chars: string[], envs: string[], meds: string[]) => Promise<void>;
+}) {
+  return (
+    <form onSubmit={e => {
+      e.preventDefault();
+      const el = e.currentTarget;
+      const fd = new FormData(el);
+      const sel = (n: string) => [...(el.elements.namedItem(n) as HTMLSelectElement).selectedOptions].map(o => o.value);
+      onCreate(sceneId, String(fd.get("action")), String(fd.get("intent")), sel("chars"), sel("envs"), sel("meds"));
+      el.reset();
+    }} style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      <input name="action" placeholder="Action" />
+      <input name="intent" placeholder="Intention visuelle" />
+      <select name="chars" multiple title="Personnages" style={{ minWidth: 90 }}>
+        {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+      <select name="envs" multiple title="Environnements" style={{ minWidth: 90 }}>
+        {environments.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+      <select name="meds" multiple title="Visuels" style={{ minWidth: 90 }}>
+        {assets.map(a => <option key={a.id} value={a.id}>{a.kind} {a.id.slice(0, 6)}</option>)}
+      </select>
+      <button>Ajouter un plan</button>
+    </form>
   );
 }
 
