@@ -212,10 +212,23 @@ function RefCard({ item, kind, pid, assets, onChanged }: {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(item.name);
   const [description, setDescription] = useState(item.initial_description);
+  const [msg, setMsg] = useState("");
 
   async function save() { await api.updateReference(pid, kind, item.id, { name, description }); await onChanged(); }
   async function importFile(file: File) { await api.importReference(pid, kind, item.id, file); await onChanged(); }
-  async function analyze() { await api.analyzeReference(pid, kind, item.id); await new Promise(r => setTimeout(r, 1500)); await onChanged(); }
+  async function analyze() {
+    setMsg("analyse en cours…");
+    try {
+      const task = await api.analyzeReference(pid, kind, item.id);
+      for (let i = 0; i < 25; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const t = await api.getTask(task.id);
+        if (t.status === "succeeded") { setMsg("analyse terminée ✓"); await onChanged(); return; }
+        if (t.status === "failed") { setMsg("échec : " + (t.last_error || "")); await onChanged(); return; }
+      }
+      setMsg("délai dépassé");
+    } catch (e) { setMsg("erreur : " + e); }
+  }
   async function unlink(assetId: string) { await api.unlinkReferenceAsset(pid, kind, item.id, assetId); await onChanged(); }
 
   return (
@@ -242,6 +255,7 @@ function RefCard({ item, kind, pid, assets, onChanged }: {
           </div>
           <input type="file" onChange={e => e.target.files && importFile(e.target.files[0])} />
           <button onClick={analyze}>Analyser (vision)</button>
+          {msg && <p style={{ fontSize: 13, color: msg.startsWith("échec") || msg.startsWith("erreur") ? "#b00" : "#666" }}>{msg}</p>}
           {item.approved_description && <p><i>Approuvé : {item.approved_description}</i></p>}
         </div>
       )}

@@ -33,7 +33,8 @@ class HttpGenerationGatewayClient:
 
     # --- helpers ------------------------------------------------------------
     def _headers(self) -> dict:
-        h = {}
+        # Cloudflare (devant le proxy Runpod) rejette les requêtes sans UA navigateur
+        h = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
         if settings.generation_api_key:
             scheme = settings.generation_api_auth_scheme or "Bearer"
             h[settings.generation_api_auth_header] = f"{scheme} {settings.generation_api_key}"

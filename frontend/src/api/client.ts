@@ -30,6 +30,7 @@ export const api = {
   },
   analyzeReference: (pid: string, kind: string, rid: string) =>
     req<any>(`/api/projects/${pid}/references/${kind}/${rid}/analyze`, { method: "POST" }),
+  getTask: (taskId: string) => req<any>(`/api/tasks/${taskId}`),
   updateReference: (pid: string, kind: string, rid: string, patch: { name?: string; description?: string }) =>
     req<any>(`/api/projects/${pid}/references/${kind}/${rid}`, json("PATCH", patch)),
   unlinkReferenceAsset: (pid: string, kind: string, rid: string, assetId: string) =>
