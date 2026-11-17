@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import domain  # noqa: F401 — enregistre les modèles
-from .api import assets, completions, generations, projects, references, tasks
+from .api import assets, completions, generations, projects, references, storyboard, tasks
 from .config import settings
 from .database import engine
 from .domain.models import Base
@@ -40,6 +40,7 @@ def config_info():
 
 
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
+app.include_router(storyboard.router, prefix="/api/projects/{project_id}", tags=["storyboard"])
 app.include_router(references.router, prefix="/api/projects/{project_id}/references", tags=["references"])
 app.include_router(completions.router, prefix="/api/projects/{project_id}/completions", tags=["completions"])
 app.include_router(generations.router, prefix="/api/projects/{project_id}/generations", tags=["generations"])

@@ -72,6 +72,34 @@ class GenerationCreate(BaseModel):
     request: dict[str, Any]
 
 
+class SceneCreate(BaseModel):
+    title: str = ""
+    narrative: str = ""
+    order: int = 0
+
+
+class SceneOut(BaseModel):
+    id: str
+    project_id: str
+    order: int
+    title: str
+    narrative: str
+
+
+class ShotCreate(BaseModel):
+    action: str = ""
+    visual_intent: str = ""
+    order: int = 0
+
+
+class ShotOut(BaseModel):
+    id: str
+    scene_id: str
+    order: int
+    action: str
+    visual_intent: str
+
+
 class GenerationOut(BaseModel):
     id: str
     project_id: str

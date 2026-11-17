@@ -22,6 +22,8 @@ from ..domain.models import (
     Environment,
     Generation,
     Project,
+    Scene,
+    Shot,
     Task,
 )
 
@@ -236,3 +238,33 @@ def list_generations(db: Session, project_id: str) -> list[Generation]:
 
 def list_assets(db: Session, project_id: str) -> list[Asset]:
     return db.query(Asset).filter(Asset.project_id == project_id).order_by(Asset.created_at).all()
+
+
+# --------------------------------------------------------------------------- #
+# Storyboard (scènes / plans)
+# --------------------------------------------------------------------------- #
+def create_scene(db: Session, project_id: str, title: str = "", narrative: str = "", order: int = 0) -> Scene:
+    get_project(db, project_id)
+    s = Scene(project_id=project_id, title=title, narrative=narrative, order=order)
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+def list_scenes(db: Session, project_id: str) -> list[Scene]:
+    return db.query(Scene).filter(Scene.project_id == project_id).order_by(Scene.order).all()
+
+
+def create_shot(db: Session, scene_id: str, action: str = "", visual_intent: str = "", order: int = 0) -> Shot:
+    if db.get(Scene, scene_id) is None:
+        raise ValueError("scène introuvable")
+    sh = Shot(scene_id=scene_id, action=action, visual_intent=visual_intent, order=order)
+    db.add(sh)
+    db.commit()
+    db.refresh(sh)
+    return sh
+
+
+def list_shots(db: Session, scene_id: str) -> list[Shot]:
+    return db.query(Shot).filter(Shot.scene_id == scene_id).order_by(Shot.order).all()
