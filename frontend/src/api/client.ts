@@ -60,7 +60,7 @@ export const api = {
   generateSequence: (pid: string, sceneId: string) =>
     req<any>(`/api/projects/${pid}/scenes/${sceneId}/generate-sequence`, { method: "POST" }),
   chat: (pid: string, message: string) =>
-    req<any>(`/api/projects/${pid}/chat`, { method: "POST", body: JSON.stringify({ message }) }),
+    req<any>(`/api/projects/${pid}/chat`, json("POST", { message })),
 
   // générations
   createGeneration: (pid: string, kind: string, request: unknown) =>
