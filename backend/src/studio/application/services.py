@@ -347,6 +347,11 @@ def chat_orchestrator(db: Session, project_id: str, message: str) -> dict:
     data = result.data if getattr(result, "schema_valid", False) else None
     reply = (data or {}).get("reply") if data else (result.text or "Je n'ai pas pu traiter la demande.")
     action = (data or {}).get("action") if data else None
+    # Le petit modèle renvoie parfois un reply vide/« action » et met l'explication
+    # dans action.description : on récupère alors le texte utile.
+    garbage = (reply or "").strip().lower() in ("", "action", "reply", "none", "json")
+    if garbage and isinstance(action, dict) and action.get("description"):
+        reply = action["description"]
     outcome = _execute_chat_action(db, project_id, action)
     return {"reply": reply, "action": action, "outcome": outcome}
 
@@ -377,28 +382,38 @@ def _execute_chat_action(db: Session, project_id: str, action: dict | None) -> d
     t = action.get("type")
     if t in (None, "none"):
         return None
+
+    def need(key):
+        v = action.get(key)
+        if not v:
+            raise ValueError(f"paramètre manquant : {key}")
+        return v
+
     try:
         if t == "generate_sequence":
-            task = request_sequence(db, project_id, action["scene_id"])
+            task = request_sequence(db, project_id, need("scene_id"))
             return {"task_id": task.id, "kind": task.kind}
         if t == "analyze_reference":
-            task = request_analysis(db, project_id, action.get("kind", "character"), action["ref_id"])
+            task = request_analysis(db, project_id, need("kind"), need("ref_id"))
             return {"task_id": task.id, "kind": task.kind}
         if t == "improve_reference":
-            task = request_improve_reference(db, project_id, action.get("kind", "character"), action["ref_id"])
+            task = request_improve_reference(db, project_id, need("kind"), need("ref_id"))
             return {"task_id": task.id, "kind": task.kind}
+        if t == "generate_reference_visual":
+            gen = request_reference_visual(db, project_id, need("kind"), need("ref_id"))
+            return {"generation_id": gen.id, "kind": "image"}
         if t == "generate_shot_image":
-            task = request_shot_generation(db, project_id, action["shot_id"], "image")
+            task = request_shot_generation(db, project_id, need("shot_id"), "image")
             return {"task_id": task.id, "kind": task.kind}
         if t == "create_scene":
             sc = create_scene(db, project_id, action.get("title", ""), action.get("narrative", ""), 0)
             return {"scene_id": sc.id}
         if t == "create_shot":
-            sh = create_shot(db, action["scene_id"], action.get("action", ""), action.get("visual_intent", ""), 0, [], [], [])
+            sh = create_shot(db, need("scene_id"), action.get("action", ""), action.get("visual_intent", ""), 0, [], [], [])
             return {"shot_id": sh.id, "scene_id": sh.scene_id}
         if t == "create_reference":
-            ref = create_reference(db, project_id, action.get("kind", "character"), action.get("name", ""), action.get("description", ""))
+            ref = create_reference(db, project_id, need("kind"), need("name"), action.get("description", ""))
             return {"ref_id": ref.id}
         return {"error": f"action inconnue : {t}"}
     except (ValueError, KeyError) as e:
-        return {"error": str(e)}
+        return {"error": f"{t} : {e}"}

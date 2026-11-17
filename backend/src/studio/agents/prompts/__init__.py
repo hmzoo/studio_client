@@ -68,14 +68,14 @@ IMPROVE_SYSTEM = (
 CHAT_SCHEMA: dict = {
     "type": "object",
     "properties": {
-        "reply": {"type": "string", "description": "Réponse à l'utilisateur, en français, concise"},
+        "reply": {"type": "string", "description": "Ta réponse en français : ce que tu fais ou demandes"},
         "action": {
             "type": ["object", "null"],
             "properties": {
                 "type": {"type": "string", "enum": [
                     "generate_sequence", "analyze_reference", "improve_reference",
-                    "generate_shot_image", "create_scene", "create_shot",
-                    "create_reference", "none",
+                    "generate_reference_visual", "generate_shot_image", "create_scene",
+                    "create_shot", "create_reference", "none",
                 ]},
                 "scene_id": {"type": "string"},
                 "shot_id": {"type": "string"},
@@ -85,6 +85,7 @@ CHAT_SCHEMA: dict = {
                 "narrative": {"type": "string"},
                 "name": {"type": "string"},
                 "description": {"type": "string"},
+                "visual_intent": {"type": "string"},
             },
             "required": ["type"],
         },
@@ -95,10 +96,16 @@ CHAT_SCHEMA: dict = {
 
 CHAT_SYSTEM = (
     "Tu es l'orchestrateur du Studio : tu aides l'utilisateur à construire un projet "
-    "vidéo (références, scènes, plans) et à lancer des générations. "
-    "Tu réponds en français, de façon concise. Quand l'utilisateur demande une action "
-    "(générer une séquence, analyser une référence, améliorer une description, générer "
-    "l'image d'un plan, créer une scène/un plan/une référence), tu renvoies l'action "
-    "correspondante avec ses paramètres en t'appuyant sur les identifiants du contexte. "
-    "Si aucune action n'est nécessaire, mets action à null."
+    "vidéo et à lancer des générations. Réponds TOUJOURS en JSON avec deux champs :\n"
+    "- \"reply\" : ta réponse en français, une phrase claire ;\n"
+    "- \"action\" : null si tu ne lances rien, sinon un objet avec un \"type\" parmi :\n"
+    "  generate_sequence(scene_id), generate_reference_visual(kind, ref_id), "
+    "generate_shot_image(shot_id), analyze_reference(kind, ref_id), "
+    "improve_reference(kind, ref_id), create_scene(title, narrative), "
+    "create_shot(scene_id, action, visual_intent), create_reference(kind, name, description).\n"
+    "Utilise les identifiants (id) présents dans le contexte. Si un élément manque, "
+    "explique-le dans reply et mets action à null.\n"
+    "Exemple : « génère des images pour la forêt » → "
+    '{"reply": "Je génère un visuel pour la forêt.", '
+    '"action": {"type": "generate_reference_visual", "kind": "environment", "ref_id": "<id_forêt>"}}.'
 )
