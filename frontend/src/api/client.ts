@@ -30,6 +30,10 @@ export const api = {
   },
   analyzeReference: (pid: string, kind: string, rid: string) =>
     req<any>(`/api/projects/${pid}/references/${kind}/${rid}/analyze`, { method: "POST" }),
+  updateReference: (pid: string, kind: string, rid: string, patch: { name?: string; description?: string }) =>
+    req<any>(`/api/projects/${pid}/references/${kind}/${rid}`, json("PATCH", patch)),
+  unlinkReferenceAsset: (pid: string, kind: string, rid: string, assetId: string) =>
+    req<any>(`/api/projects/${pid}/references/${kind}/${rid}/assets/${assetId}`, { method: "DELETE" }),
 
   // complétions
   listProposals: (pid: string) => req<any[]>(`/api/projects/${pid}/completions`),

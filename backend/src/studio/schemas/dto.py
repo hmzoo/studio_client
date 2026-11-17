@@ -36,6 +36,11 @@ class ReferenceOut(BaseModel):
     media_ids: str = ""
 
 
+class ReferenceUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
 class AssetOut(BaseModel):
     id: str
     project_id: str | None

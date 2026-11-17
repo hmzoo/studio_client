@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api/client";
 
-type Ref = { id: string; name: string; initial_description: string; approved_description: string | null };
+type Ref = { id: string; name: string; initial_description: string; approved_description: string | null; media_ids: string };
 type Proposal = { id: string; content: string; status: string; references: string };
 type Generation = { id: string; kind: string; status: string; external_job_id: string | null };
 type Asset = { id: string; kind: string; is_simulated: boolean };
@@ -19,7 +19,6 @@ export default function App() {
   const [pid, setPid] = useState<string | null>(null);
   const [err, setErr] = useState("");
 
-  // projet courant
   const [refKind, setRefKind] = useState<"character" | "environment">("character");
   const [refs, setRefs] = useState<Ref[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
@@ -27,8 +26,6 @@ export default function App() {
   const [shots, setShots] = useState<Record<string, Shot[]>>({});
   const [gens, setGens] = useState<Generation[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
-
-  // formulaire de génération
   const [genKind, setGenKind] = useState<"image" | "video" | "text">("image");
 
   async function refreshProjects() {
@@ -38,16 +35,10 @@ export default function App() {
       setProjects(await api.listProjects());
     } catch (e) { setErr(String(e)); }
   }
-
   useEffect(() => { refreshProjects(); }, []);
 
-  async function openProject(id: string) {
-    setPid(id);
-    setErr("");
-    await loadProject(id, "character");
-  }
-
   async function loadProject(id: string, kind: "character" | "environment") {
+    setErr("");
     try {
       setRefs(await api.listReferences(id, kind));
       setProposals(await api.listProposals(id));
@@ -58,11 +49,13 @@ export default function App() {
     } catch (e) { setErr(String(e)); }
   }
 
+  function openProject(id: string) { setPid(id); loadProject(id, "character"); }
+
+  async function refreshRefs() { if (pid) { setRefs(await api.listReferences(pid, refKind)); setAssets(await api.listAssets(pid)); } }
+
   async function createProject(name: string) { await api.createProject(name); refreshProjects(); }
-  async function createRef(name: string, description: string) { if (!pid) return; await api.createReference(pid, refKind, name, description); setRefs(await api.listReferences(pid, refKind)); }
-  async function importFile(rid: string, file: File) { if (!pid) return; await api.importReference(pid, refKind, rid, file); setAssets(await api.listAssets(pid)); }
-  async function analyze(rid: string) { if (!pid) return; await api.analyzeReference(pid, refKind, rid); await new Promise(r => setTimeout(r, 1500)); setProposals(await api.listProposals(pid)); setRefs(await api.listReferences(pid, refKind)); }
-  async function decide(proposalId: string, status: string) { if (!pid) return; await api.decideProposal(pid, proposalId, status); setProposals(await api.listProposals(pid)); setRefs(await api.listReferences(pid, refKind)); }
+  async function createRef(name: string, description: string) { if (!pid) return; await api.createReference(pid, refKind, name, description); refreshRefs(); }
+  async function decide(proposalId: string, status: string) { if (!pid) return; await api.decideProposal(pid, proposalId, status); setProposals(await api.listProposals(pid)); refreshRefs(); }
 
   async function createScene(title: string, narrative: string) { if (!pid) return; await api.createScene(pid, title, narrative); setScenes(await api.listScenes(pid)); }
   async function createShot(sceneId: string, action: string, intent: string) { if (!pid) return; await api.createShot(pid, sceneId, action, intent); setShots({ ...shots, [sceneId]: await api.listShots(pid, sceneId) }); }
@@ -111,13 +104,7 @@ export default function App() {
               <button>Ajouter</button>
             </form>
             {refs.map(r => (
-              <div key={r.id} style={{ border: "1px solid #ddd", padding: 8, margin: 8 }}>
-                <b>{r.name}</b>
-                {r.initial_description && <p>{r.initial_description}</p>}
-                {r.approved_description && <p><i>Approuvé : {r.approved_description}</i></p>}
-                <input type="file" onChange={e => e.target.files && importFile(r.id, e.target.files[0])} />
-                <button onClick={() => analyze(r.id)}>Analyser (vision)</button>
-              </div>
+              <RefCard key={r.id} ref={r} kind={refKind} pid={pid} assets={assets.filter(a => (r.media_ids || "").split(",").includes(a.id))} onChanged={refreshRefs} />
             ))}
           </section>
 
@@ -155,9 +142,7 @@ export default function App() {
                   <button>Ajouter un plan</button>
                 </form>
                 {(shots[s.id] || []).map(sh => (
-                  <div key={sh.id} style={{ marginLeft: 16, fontSize: 14 }}>
-                    #{sh.order} — {sh.action} <small>({sh.visual_intent})</small>
-                  </div>
+                  <div key={sh.id} style={{ marginLeft: 16, fontSize: 14 }}>#{sh.order} — {sh.action} <small>({sh.visual_intent})</small></div>
                 ))}
               </div>
             ))}
@@ -180,6 +165,63 @@ export default function App() {
               ))}
             </div>
           </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RefCard({ ref, kind, pid, assets, onChanged }: {
+  ref: Ref; kind: "character" | "environment"; pid: string; assets: Asset[];
+  onChanged: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(ref.name);
+  const [description, setDescription] = useState(ref.initial_description);
+
+  async function save() {
+    await api.updateReference(pid, kind, ref.id, { name, description });
+    await onChanged();
+  }
+  async function importFile(file: File) {
+    await api.importReference(pid, kind, ref.id, file);
+    await onChanged();
+  }
+  async function analyze() {
+    await api.analyzeReference(pid, kind, ref.id);
+    await new Promise(r => setTimeout(r, 1500));
+    await onChanged();
+  }
+  async function unlink(assetId: string) {
+    await api.unlinkReferenceAsset(pid, kind, ref.id, assetId);
+    await onChanged();
+  }
+
+  return (
+    <div style={{ border: "1px solid #ccc", padding: 10, margin: 8, borderRadius: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <b>{ref.name}</b>
+        <button onClick={() => setOpen(!open)}>{open ? "Fermer" : "Modifier"}</button>
+      </div>
+      {!open && <p style={{ fontSize: 14 }}>{ref.initial_description || "(pas de description)"}</p>}
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          <label>Nom<br /><input value={name} onChange={e => setName(e.target.value)} /></label><br />
+          <label>Description<br /><textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} style={{ width: "100%" }} /></label><br />
+          <button onClick={save}>Enregistrer</button>
+
+          <h4>Visuels</h4>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {assets.map(a => (
+              <figure key={a.id} style={{ margin: 0, position: "relative" }}>
+                <img src={api.assetUrl(a.id)} width={96} alt="visuel" />
+                <button style={{ position: "absolute", top: 2, right: 2 }} onClick={() => unlink(a.id)}>✕</button>
+              </figure>
+            ))}
+          </div>
+          <input type="file" onChange={e => e.target.files && importFile(e.target.files[0])} />
+          <button onClick={analyze}>Analyser (vision)</button>
+          {ref.approved_description && <p><i>Approuvé : {ref.approved_description}</i></p>}
         </div>
       )}
     </div>

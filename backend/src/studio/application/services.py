@@ -83,6 +83,30 @@ def get_reference(db: Session, project_id: str, kind: str, ref_id: str):
     return ref
 
 
+def update_reference(db: Session, project_id: str, kind: str, ref_id: str,
+                     name: str | None = None, description: str | None = None):
+    ref = get_reference(db, project_id, kind, ref_id)
+    if name is not None:
+        ref.name = name
+    if description is not None:
+        ref.initial_description = description
+    db.add(ref)
+    db.commit()
+    db.refresh(ref)
+    return ref
+
+
+def unlink_reference_asset(db: Session, project_id: str, kind: str, ref_id: str, asset_id: str):
+    """Retire un média de la référence (ne supprime pas l'asset de la médiathèque)."""
+    ref = get_reference(db, project_id, kind, ref_id)
+    ids = [i for i in (ref.media_ids or "").split(",") if i and i != asset_id]
+    ref.media_ids = ",".join(ids)
+    db.add(ref)
+    db.commit()
+    db.refresh(ref)
+    return ref
+
+
 def _link_media(db: Session, ref, asset_id: str) -> None:
     ids = [i for i in (ref.media_ids or "").split(",") if i]
     if asset_id not in ids:

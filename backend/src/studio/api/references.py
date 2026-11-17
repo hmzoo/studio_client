@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from ..application import services
 from ..database import get_db
-from ..schemas.dto import AssetOut, ReferenceCreate, ReferenceOut, TaskOut
+from ..schemas.dto import AssetOut, ReferenceCreate, ReferenceOut, ReferenceUpdate, TaskOut
 
 router = APIRouter()
 
@@ -39,5 +39,21 @@ async def import_image(project_id: str, kind: str, ref_id: str,
 def analyze(project_id: str, kind: str, ref_id: str, db: Session = Depends(get_db)):
     try:
         return services.request_analysis(db, project_id, kind, ref_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/{kind}/{ref_id}", response_model=ReferenceOut)
+def update_reference(project_id: str, kind: str, ref_id: str, body: ReferenceUpdate, db: Session = Depends(get_db)):
+    try:
+        return services.update_reference(db, project_id, kind, ref_id, body.name, body.description)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/{kind}/{ref_id}/assets/{asset_id}", response_model=ReferenceOut)
+def unlink_asset(project_id: str, kind: str, ref_id: str, asset_id: str, db: Session = Depends(get_db)):
+    try:
+        return services.unlink_reference_asset(db, project_id, kind, ref_id, asset_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
