@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api/client";
 
 type Ref = { id: string; name: string; initial_description: string; approved_description: string | null; media_ids: string };
-type Proposal = { id: string; content: string; status: string; references: string };
+type Proposal = { id: string; content: string; status: string; references: string; subject_id: string };
 type Generation = { id: string; kind: string; status: string; external_job_id: string | null };
 type Asset = { id: string; kind: string; is_simulated: boolean; external_url?: string };
 type Scene = { id: string; order: number; title: string; narrative: string };
@@ -137,7 +137,7 @@ export default function App() {
               <button>Ajouter</button>
             </form>
             {refs.map(r => (
-              <RefCard key={r.id} item={r} kind={refKind} pid={pid} assets={assets.filter(a => (r.media_ids || "").split(",").includes(a.id))} onChanged={refreshRefs} />
+              <RefCard key={r.id} item={r} kind={refKind} pid={pid} assets={assets.filter(a => (r.media_ids || "").split(",").includes(a.id))} proposals={proposals.filter(p => p.subject_id === r.id)} onChanged={refreshRefs} onDecide={decide} />
             ))}
           </section>
 
@@ -205,9 +205,10 @@ export default function App() {
   );
 }
 
-function RefCard({ item, kind, pid, assets, onChanged }: {
-  item: Ref; kind: "character" | "environment"; pid: string; assets: Asset[];
+function RefCard({ item, kind, pid, assets, proposals, onChanged, onDecide }: {
+  item: Ref; kind: "character" | "environment"; pid: string; assets: Asset[]; proposals: Proposal[];
   onChanged: () => Promise<void>;
+  onDecide: (proposalId: string, status: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(item.name);
@@ -238,6 +239,14 @@ function RefCard({ item, kind, pid, assets, onChanged }: {
         <button onClick={() => setOpen(!open)}>{open ? "Fermer" : "Modifier"}</button>
       </div>
       {!open && <p style={{ fontSize: 14 }}>{item.initial_description || "(pas de description)"}</p>}
+      {proposals.filter(p => p.status === "pending").map(p => (
+        <div key={p.id} style={{ border: "1px solid #e0b000", background: "#fff8e1", padding: 8, borderRadius: 6, margin: "6px 0" }}>
+          <b>Proposition en attente :</b>
+          <p style={{ margin: "4px 0" }}>{p.content}</p>
+          <button onClick={() => onDecide(p.id, "approved")}>✓ Approuver</button>
+          <button onClick={() => onDecide(p.id, "rejected")}>✗ Rejeter</button>
+        </div>
+      ))}}
       {open && (
         <div style={{ marginTop: 8 }}>
           <label>Nom<br /><input value={name} onChange={e => setName(e.target.value)} /></label><br />
