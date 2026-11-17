@@ -393,15 +393,20 @@ function ShotForm({ sceneId, characters, environments, assets, onCreate }: {
   sceneId: string; characters: Ref[]; environments: Ref[]; assets: Asset[];
   onCreate: (sceneId: string, action: string, intent: string, chars: string[], envs: string[], meds: string[]) => Promise<void>;
 }) {
+  const [meds, setMeds] = useState<string[]>([]);
+  function toggleMedia(id: string) {
+    setMeds(m => m.includes(id) ? m.filter(x => x !== id) : [...m, id]);
+  }
   return (
     <form onSubmit={e => {
       e.preventDefault();
       const el = e.currentTarget;
       const fd = new FormData(el);
       const sel = (n: string) => [...(el.elements.namedItem(n) as HTMLSelectElement).selectedOptions].map(o => o.value);
-      onCreate(sceneId, String(fd.get("action")), String(fd.get("intent")), sel("chars"), sel("envs"), sel("meds"));
+      onCreate(sceneId, String(fd.get("action")), String(fd.get("intent")), sel("chars"), sel("envs"), meds);
       el.reset();
-    }} style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      setMeds([]);
+    }} style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "flex-start" }}>
       <input name="action" placeholder="Action (ex. marche sous la pluie)" />
       <input name="intent" placeholder="Intention visuelle (ex. ambiance nuit)" />
       <label title="Personnages liés à ce plan">👤 <select name="chars" multiple style={{ minWidth: 90 }}>
@@ -410,9 +415,21 @@ function ShotForm({ sceneId, characters, environments, assets, onCreate }: {
       <label title="Environnements liés à ce plan">🏞 <select name="envs" multiple style={{ minWidth: 90 }}>
         {environments.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select></label>
-      <label title="Visuels de référence du plan">🖼 <select name="meds" multiple style={{ minWidth: 90 }}>
-        {assets.map(a => <option key={a.id} value={a.id}>{a.kind} {a.id.slice(0, 6)}</option>)}
-      </select></label>
+      <div style={{ width: "100%" }}>
+        <small>🖼 Visuels de référence (clique pour sélectionner) : {meds.length ? meds.length + " sélectionné(s)" : "aucun"}</small>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+          {assets.map(a => (
+            <span key={a.id} onClick={() => toggleMedia(a.id)} title={`${a.kind} ${a.id.slice(0, 6)}`}
+                  style={{ cursor: "pointer", borderRadius: 6, overflow: "hidden",
+                           border: meds.includes(a.id) ? "3px solid #7c5cff" : "1px solid #ccc",
+                           display: "inline-block", lineHeight: 0 }}>
+              {a.kind === "video"
+                ? <video src={api.assetUrl(a.id)} width={56} height={56} style={{ objectFit: "cover" }} muted />
+                : <img src={api.assetUrl(a.id)} width={56} height={56} style={{ objectFit: "cover" }} alt={a.id.slice(0, 6)} />}
+            </span>
+          ))}
+        </div>
+      </div>
       <button>Ajouter un plan</button>
     </form>
   );
