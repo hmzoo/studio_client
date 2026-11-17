@@ -113,6 +113,17 @@ export default function App() {
       ) : (
         <div>
           <button onClick={() => setPid(null)}>← Projets</button>
+          <details style={{ background: "#f4f4f8", padding: 10, borderRadius: 8, margin: "8px 0" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>Comment utiliser Studio</summary>
+            <ol style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: 14 }}>
+              <li>Dans « Références », ajoute un personnage/environnement (nom + description).</li>
+              <li>Ouvre sa fiche (« Modifier ») → importe une image → « Analyser (vision) ».</li>
+              <li>Dans « Complétions proposées », approuve ou rejette la description.</li>
+              <li>Dans « Scènes et plans », ajoute une scène puis un plan (action + intention + sélections).</li>
+              <li>Clique « 🎨 Générer (image) » sur un plan — l'agent construit le prompt et génère.</li>
+              <li>Résultats dans « Générations » et « Médiathèque ».</li>
+            </ol>
+          </details>
 
           <section>
             <h2>Références</h2>
@@ -251,17 +262,17 @@ function ShotForm({ sceneId, characters, environments, assets, onCreate }: {
       onCreate(sceneId, String(fd.get("action")), String(fd.get("intent")), sel("chars"), sel("envs"), sel("meds"));
       el.reset();
     }} style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-      <input name="action" placeholder="Action" />
-      <input name="intent" placeholder="Intention visuelle" />
-      <select name="chars" multiple title="Personnages" style={{ minWidth: 90 }}>
+      <input name="action" placeholder="Action (ex. marche sous la pluie)" />
+      <input name="intent" placeholder="Intention visuelle (ex. ambiance nuit)" />
+      <label title="Personnages liés à ce plan">👤 <select name="chars" multiple style={{ minWidth: 90 }}>
         {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-      </select>
-      <select name="envs" multiple title="Environnements" style={{ minWidth: 90 }}>
+      </select></label>
+      <label title="Environnements liés à ce plan">🏞 <select name="envs" multiple style={{ minWidth: 90 }}>
         {environments.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-      </select>
-      <select name="meds" multiple title="Visuels" style={{ minWidth: 90 }}>
+      </select></label>
+      <label title="Visuels de référence du plan">🖼 <select name="meds" multiple style={{ minWidth: 90 }}>
         {assets.map(a => <option key={a.id} value={a.id}>{a.kind} {a.id.slice(0, 6)}</option>)}
-      </select>
+      </select></label>
       <button>Ajouter un plan</button>
     </form>
   );
