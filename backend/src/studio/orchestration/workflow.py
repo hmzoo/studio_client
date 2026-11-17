@@ -13,17 +13,22 @@ from sqlalchemy.orm import Session
 
 from .. import storage
 from ..agents.base import AgentRuntime
+from ..agents.description_improver import improve_reference_description
 from ..agents.prompt_builder import build_shot_prompt
 from ..application.services import _run_analysis
 from ..clients import get_gateway
 from ..clients.interface import GatewayError, ImageRequest, TextRequest, VideoRequest
 from ..config import settings
-from ..domain.models import Asset, Generation, Task
+from ..domain.models import Asset, Character, Environment, Generation, Task
 
 
 def process_task(db: Session, task: Task) -> None:
     if task.kind == "analyze_reference":
         _run_analysis(db, task)
+        task.status = "succeeded"
+        return
+    if task.kind == "improve_reference":
+        _run_improve_reference(db, task)
         task.status = "succeeded"
         return
     if task.kind == "generate_shot":
@@ -34,6 +39,15 @@ def process_task(db: Session, task: Task) -> None:
         return
     task.status = "failed"
     task.last_error = f"type de tâche inconnu : {task.kind}"
+
+
+def _run_improve_reference(db: Session, task: Task) -> None:
+    payload = json.loads(task.payload)
+    rt = AgentRuntime(db=db, gateway=get_gateway())
+    improve_reference_description(
+        {"project_id": payload["project_id"], "kind": payload["kind"], "reference_id": payload["ref_id"]},
+        rt,
+    )
 
 
 def _process_generate_shot(db: Session, task: Task) -> None:
@@ -169,14 +183,30 @@ def _download_result(db: Session, gen: Generation, result) -> None:
         v = result.get("video")
         if isinstance(v, dict) and v.get("url"):
             urls.append((v["url"], "video", ".mp4"))
+    created: list[Asset] = []
     for url, kind, ext in urls:
         try:
             data = gw.download_media(url)
         except GatewayError:
             continue
         rel = storage.save_media(data, ext, gen.project_id)
-        db.add(Asset(project_id=gen.project_id, kind=kind, origin="gateway", local_path=rel,
-                     mime_type="image/png" if kind == "image" else "video/mp4",
-                     external_url=url, is_simulated=getattr(gw, "simulated", False)))
+        asset = Asset(project_id=gen.project_id, kind=kind, origin="gateway", local_path=rel,
+                      mime_type="image/png" if kind == "image" else "video/mp4",
+                      external_url=url, is_simulated=getattr(gw, "simulated", False))
+        db.add(asset)
+        created.append(asset)
+    db.flush()
+    # si la génération est liée à une référence, on y attache les visuels produits
+    if gen.reference_id and gen.reference_kind:
+        ref_model = {"character": Character, "environment": Environment}.get(gen.reference_kind)
+        if ref_model:
+            ref = db.get(ref_model, gen.reference_id)
+            if ref is not None:
+                ids = [i for i in (ref.media_ids or "").split(",") if i]
+                for a in created:
+                    if a.id not in ids:
+                        ids.append(a.id)
+                ref.media_ids = ",".join(ids)
+                db.add(ref)
     gen.result = json.dumps(result, ensure_ascii=False, default=str)
     gen.status = "succeeded"

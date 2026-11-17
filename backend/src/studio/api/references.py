@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from ..application import services
 from ..database import get_db
-from ..schemas.dto import AssetOut, ReferenceCreate, ReferenceOut, ReferenceUpdate, TaskOut
+from ..schemas.dto import AssetOut, GenerationOut, ReferenceCreate, ReferenceOut, ReferenceUpdate, TaskOut
 
 router = APIRouter()
 
@@ -55,5 +55,23 @@ def update_reference(project_id: str, kind: str, ref_id: str, body: ReferenceUpd
 def unlink_asset(project_id: str, kind: str, ref_id: str, asset_id: str, db: Session = Depends(get_db)):
     try:
         return services.unlink_reference_asset(db, project_id, kind, ref_id, asset_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{kind}/{ref_id}/improve", response_model=TaskOut)
+def improve(project_id: str, kind: str, ref_id: str, db: Session = Depends(get_db)):
+    """Améliore la description de la référence (agent)."""
+    try:
+        return services.request_improve_reference(db, project_id, kind, ref_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{kind}/{ref_id}/generate-visual", response_model=GenerationOut)
+def generate_visual(project_id: str, kind: str, ref_id: str, db: Session = Depends(get_db)):
+    """Génère un visuel depuis la description (lié à la référence)."""
+    try:
+        return services.request_reference_visual(db, project_id, kind, ref_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

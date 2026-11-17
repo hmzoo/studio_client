@@ -135,6 +135,8 @@ class Generation(Base):
     result: Mapped[str | None] = mapped_column(Text, nullable=True)  # json
     error: Mapped[str | None] = mapped_column(Text, nullable=True)  # json normalisée
     previous_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reference_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    reference_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

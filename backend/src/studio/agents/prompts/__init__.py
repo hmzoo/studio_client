@@ -43,3 +43,22 @@ SHOT_PROMPT_SYSTEM = (
     "et choisis éventuellement un visuel de référence parmi ceux proposés. "
     "Réponds en JSON conforme au schéma demandé."
 )
+
+# Amélioration d'une description de référence (texte seul).
+IMPROVE_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "description": {"type": "string", "description": "Description enrichie et précise"},
+        "key_traits": {"type": "array", "items": {"type": "string"}},
+        "suggestions": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["description"],
+    "additionalProperties": True,
+}
+
+IMPROVE_SYSTEM = (
+    "Tu améliores une description de personnage ou d'environnement fournie par un "
+    "utilisateur. Rends-la précise, visuelle et complète (apparence, ambiance, détails), "
+    "sans inventer d'éléments contradictoires avec la source. Réponds en JSON conforme "
+    "au schéma demandé."
+)

@@ -233,6 +233,36 @@ def request_shot_generation(db: Session, project_id: str, shot_id: str, kind: st
     return task
 
 
+def request_improve_reference(db: Session, project_id: str, kind: str, ref_id: str) -> Task:
+    """Amélioration de la description d'une référence (agent)."""
+    get_reference(db, project_id, kind, ref_id)
+    task = Task(kind="improve_reference", status="pending",
+                payload=json.dumps({"project_id": project_id, "kind": kind, "ref_id": ref_id}))
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def request_reference_visual(db: Session, project_id: str, kind: str, ref_id: str) -> Generation:
+    """Génère un visuel depuis la description de la référence (lié à la référence)."""
+    ref = get_reference(db, project_id, kind, ref_id)
+    prompt = (ref.approved_description or ref.initial_description or ref.name).strip()
+    gen = Generation(
+        project_id=project_id, kind="image", status="pending",
+        request_snapshot=json.dumps({"prompt": prompt, "width": 1024, "height": 1024, "steps": 28}, ensure_ascii=False),
+        reference_kind=kind, reference_id=ref_id,
+    )
+    db.add(gen)
+    db.flush()
+    task = Task(kind="generate_image", status="pending",
+                payload=json.dumps({"project_id": project_id, "generation_id": gen.id}))
+    db.add(task)
+    db.commit()
+    db.refresh(gen)
+    return gen
+
+
 def list_generations(db: Session, project_id: str) -> list[Generation]:
     return db.query(Generation).filter(Generation.project_id == project_id).order_by(Generation.created_at.desc()).all()
 

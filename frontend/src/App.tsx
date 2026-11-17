@@ -231,6 +231,28 @@ function RefCard({ item, kind, pid, assets, proposals, onChanged, onDecide }: {
     } catch (e) { setMsg("erreur : " + e); }
   }
   async function unlink(assetId: string) { await api.unlinkReferenceAsset(pid, kind, item.id, assetId); await onChanged(); }
+  async function improve() {
+    setMsg("amélioration en cours…");
+    try {
+      const task = await api.improveReference(pid, kind, item.id);
+      for (let i = 0; i < 25; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const t = await api.getTask(task.id);
+        if (t.status === "succeeded") { setMsg("description améliorée ✓"); await onChanged(); return; }
+        if (t.status === "failed") { setMsg("échec : " + (t.last_error || "")); return; }
+      }
+      setMsg("délai dépassé");
+    } catch (e) { setMsg("erreur : " + e); }
+  }
+  async function generateVisual() {
+    setMsg("génération du visuel…");
+    try {
+      await api.generateReferenceVisual(pid, kind, item.id);
+      await new Promise(r => setTimeout(r, 3000));
+      setMsg("");
+      await onChanged();
+    } catch (e) { setMsg("erreur : " + e); }
+  }
 
   return (
     <div style={{ border: "1px solid #ccc", padding: 10, margin: 8, borderRadius: 8 }}>
@@ -264,6 +286,8 @@ function RefCard({ item, kind, pid, assets, proposals, onChanged, onDecide }: {
           </div>
           <input type="file" onChange={e => e.target.files && importFile(e.target.files[0])} />
           <button onClick={analyze}>Analyser (vision)</button>
+          <button onClick={improve}>✨ Améliorer la description</button>
+          <button onClick={generateVisual}>🖼 Générer un visuel</button>
           {msg && <p style={{ fontSize: 13, color: msg.startsWith("échec") || msg.startsWith("erreur") ? "#b00" : "#666" }}>{msg}</p>}
           {item.approved_description && <p><i>Approuvé : {item.approved_description}</i></p>}
         </div>
