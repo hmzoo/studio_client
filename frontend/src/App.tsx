@@ -246,7 +246,7 @@ function RefCard({ item, kind, pid, assets, proposals, onChanged, onDecide }: {
           <button onClick={() => onDecide(p.id, "approved")}>✓ Approuver</button>
           <button onClick={() => onDecide(p.id, "rejected")}>✗ Rejeter</button>
         </div>
-      ))}}
+      ))}
       {open && (
         <div style={{ marginTop: 8 }}>
           <label>Nom<br /><input value={name} onChange={e => setName(e.target.value)} /></label><br />
