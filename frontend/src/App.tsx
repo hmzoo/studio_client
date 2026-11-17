@@ -142,6 +142,24 @@ export default function App() {
       const r = await api.chat(pid, text);
       setChat(c => [...c, { role: "assistant", text: r.reply, action: r.action, outcome: r.outcome }]);
       await loadProject(pid);
+      // si une génération/tâche a été lancée, on attend sa fin puis on rafraîchit
+      const o = r.outcome || {};
+      try {
+        if (o.generation_id) {
+          for (let i = 0; i < 40; i++) {
+            await new Promise(res => setTimeout(res, 3000));
+            const g = await api.getGeneration(pid, o.generation_id);
+            if (g.status === "succeeded" || g.status === "failed" || g.status === "needs_reconciliation") break;
+          }
+        } else if (o.task_id) {
+          for (let i = 0; i < 40; i++) {
+            await new Promise(res => setTimeout(res, 3000));
+            const t = await api.getTask(o.task_id);
+            if (t.status === "succeeded" || t.status === "failed" || t.status === "needs_reconciliation") break;
+          }
+        }
+        await loadProject(pid);
+      } catch { /* ignore */ }
     } catch (e) {
       setChat(c => [...c, { role: "assistant", text: "erreur : " + e }]);
     } finally {
