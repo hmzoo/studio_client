@@ -78,3 +78,12 @@ def test_http_rejects_untrusted_origin():
         assert False, "devrait lever"
     except GatewayError:
         pass
+
+
+def test_http_upload_asset_returns_relative_url():
+    def handler(request):
+        return httpx.Response(200, json={"asset_id": "a1", "url": "/assets/ref.png", "mime_type": "image/png"})
+    c = _http_client(handler)
+    meta = c.upload_asset("ref.png", b"x")
+    # l'URL reste relative : réutilisée telle quelle comme référence de génération
+    assert meta.url == "/assets/ref.png"
