@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from studio.application import services
 from studio.orchestration import workflow
+from studio.clients.interface import VideoItem, VideoResult
 from studio.database import SessionLocal
 from studio.domain.models import Asset, Shot
 from studio.workers.worker import run_worker_once
@@ -197,6 +198,11 @@ def test_run_sequence_video(client):
                                              "result": {"video": {"url": "fake://media/clip.mp4"}},
                                              "error": None, "kind": "video"})()
     gw.download_media.return_value = _TINY_PNG
+    gw.concat_videos.return_value = VideoResult(
+        video=VideoItem(url="fake://media/final.mp4", width=0, height=0, frames=0, fps=24,
+                        mode="concat", model="fake", recipe="concat", seed=-1),
+        model="fake",
+    )
     with patch.object(workflow, "get_gateway", return_value=gw):
         run_worker_once()
 
@@ -206,6 +212,7 @@ def test_run_sequence_video(client):
     assert len(payload["results"]) == 2
     assert all(r["status"] == "succeeded" for r in payload["results"])
     assert gw.generate_video.call_count == 2
+    assert payload["final_video"]["url"] == "fake://media/final.mp4"
 
     # les clips produits sont liés aux plans
     shots = client.get(f"/api/projects/{pid}/scenes/{scene['id']}/shots").json()

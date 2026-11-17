@@ -255,6 +255,34 @@ def _process_sequence(db: Session, task: Task) -> None:
         results.append({"shot_id": shot_id, "generation_id": gen.id, "status": gen.status,
                         "error": (json.loads(gen.error or "{}") or {}).get("message") if gen.error else None})
 
+    # agrégation des clips produits en une vidéo finale
+    clip_urls = []
+    for r in results:
+        if r.get("status") == "succeeded" and r.get("generation_id"):
+            g = db.get(Generation, r["generation_id"])
+            if g is not None:
+                url = _gen_video_url(g)
+                if url:
+                    clip_urls.append(url)
+    final_video = None
+    if len(clip_urls) >= 2:
+        try:
+            gw = get_gateway()
+            vr = gw.concat_videos(clip_urls)
+            data = gw.download_media(vr.video.url)
+            rel = storage.save_media(data, ".mp4", project_id)
+            asset = Asset(project_id=project_id, kind="video", origin="gateway", local_path=rel,
+                          mime_type="video/mp4", external_url=vr.video.url,
+                          is_simulated=getattr(gw, "simulated", False))
+            db.add(asset)
+            db.flush()
+            final_video = {"asset_id": asset.id, "url": vr.video.url}
+        except Exception as e:  # noqa: BLE001
+            final_video = {"error": str(e)[:200]}
+    elif len(clip_urls) == 1:
+        final_video = {"url": clip_urls[0]}
+    payload["final_video"] = final_video
+
     payload["results"] = results
     task.payload = json.dumps(payload, ensure_ascii=False)
     task.status = "succeeded"
@@ -345,6 +373,14 @@ def _result_image_urls(gen: Generation) -> list[str]:
                 if isinstance(i, dict) and i.get("url")]
     except Exception:  # noqa: BLE001
         return []
+
+
+def _gen_video_url(gen: Generation) -> str | None:
+    try:
+        res = json.loads(gen.result or "{}")
+        return (res.get("video") or {}).get("url")
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _generate_keyframe(db: Session, project_id: str, shot: Shot, prompt: str) -> str | None:

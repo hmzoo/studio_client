@@ -98,6 +98,13 @@ class FakeGenerationGatewayClient:
         }
         return GenerationOutcome(job=JobRef(job_id=job_id, status="queued"))
 
+    def concat_videos(self, urls: list[str]) -> VideoResult:
+        return VideoResult(
+            video=VideoItem(url="fake://media/final.mp4", width=0, height=0, frames=0, fps=24,
+                            mode="concat", model="fake", recipe="concat", seed=-1),
+            model="fake",
+        )
+
     def get_job(self, job_id: str) -> JobStatus:
         j = self._jobs.get(job_id)
         if j is None:

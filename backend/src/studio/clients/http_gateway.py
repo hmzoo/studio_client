@@ -91,6 +91,24 @@ class HttpGenerationGatewayClient:
         d = self._post(path, req.to_dict())
         return self._normalize(d)
 
+    def concat_videos(self, urls: list[str]) -> VideoResult:
+        d = self._post("/api/v1/videos/concat", {"videos": urls})
+        v = d.get("video", {})
+        return VideoResult(
+            video=VideoItem(
+                url=self._abs(v.get("url", "")),
+                width=v.get("width", 0),
+                height=v.get("height", 0),
+                frames=v.get("frames", 0),
+                fps=v.get("fps", 24),
+                mode=v.get("mode", "concat"),
+                model=v.get("model", "ffmpeg"),
+                recipe=v.get("recipe", "concat"),
+                seed=v.get("seed", -1),
+            ),
+            model=d.get("model", "ffmpeg"),
+        )
+
     def _normalize(self, d: dict) -> GenerationOutcome:
         if isinstance(d.get("job_id"), str) and d.get("job_id"):
             return GenerationOutcome(job=JobRef(job_id=d["job_id"], status=d.get("status", "queued")))
