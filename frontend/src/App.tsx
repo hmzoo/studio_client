@@ -381,6 +381,11 @@ function GenForm({ kind, setKind, onSubmit }: {
       e.preventDefault();
       const f = new FormData(e.currentTarget);
       const request: Record<string, unknown> = { prompt: String(f.get("prompt")) };
+      if (kind === "video") {
+        const refs = String(f.get("refs") || "").split(",").map(s => s.trim()).filter(Boolean);
+        if (!refs.length) { alert("Vidéo : fournissez au moins une image de référence (ID d'asset)."); return; }
+        request.refs = refs;
+      }
       const d = GEN_DEFAULTS[kind] || {};
       for (const [k, v] of Object.entries(d)) request[k] = Number(f.get(k) || v);
       onSubmit(request);
@@ -392,6 +397,7 @@ function GenForm({ kind, setKind, onSubmit }: {
         <option value="text">Texte</option>
       </select>
       <input name="prompt" placeholder="Prompt" style={{ flex: 1, minWidth: 200 }} />
+      {kind === "video" && <input name="refs" placeholder="refs : IDs d'assets séparés par des virgules" style={{ flex: 1, minWidth: 200 }} />}
       {kind !== "text" && Object.entries(GEN_DEFAULTS[kind] || {}).map(([k, v]) => (
         <input key={k} name={k} defaultValue={v} style={{ width: 80 }} title={k} />
       ))}

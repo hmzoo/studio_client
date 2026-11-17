@@ -206,6 +206,8 @@ def _resolve_request_refs(db: Session, kind: str, request: dict) -> dict:
 
 def request_generation(db: Session, project_id: str, kind: str, request: dict) -> Generation:
     get_project(db, project_id)
+    if kind == "video" and not (request.get("refs") or []):
+        raise ValueError("la génération vidéo nécessite au moins une image de référence (Ref2V)")
     snapshot = _resolve_request_refs(db, kind, request)
     gen = Generation(
         project_id=project_id, kind=kind, status="pending",

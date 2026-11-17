@@ -67,7 +67,7 @@ class ImageResult:
 @dataclass
 class VideoRequest:
     prompt: str
-    refs: list[str] | None = None
+    refs: list[str]
     width: int = 864
     height: int = 480
     frames: int = 124

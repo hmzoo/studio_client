@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from studio.application import services
 from studio.orchestration import workflow
+from studio.database import SessionLocal
+from studio.domain.models import Asset, Shot
 from studio.workers.worker import run_worker_once
 
 _TINY_PNG = bytes.fromhex(
@@ -165,10 +167,22 @@ def test_unknown_external_state(client):
 def test_run_sequence_video(client):
     pid = _create_project(client)
     scene = client.post(f"/api/projects/{pid}/scenes", json={"title": "Scène 1", "narrative": "", "order": 0}).json()
+    shot_ids = []
     for i in (0, 1):
         r = client.post(f"/api/projects/{pid}/scenes/{scene['id']}/shots",
                         json={"action": f"action {i}", "visual_intent": f"intention {i}", "order": i})
         assert r.status_code == 200
+        shot_ids.append(r.json()["id"])
+
+    # keyframe de référence lié au premier plan (Ref2V obligatoire)
+    db = SessionLocal()
+    asset = Asset(project_id=pid, kind="image", origin="gateway", local_path="k.png",
+                  external_url="fake://media/key.png")
+    db.add(asset)
+    db.flush()
+    db.get(Shot, shot_ids[0]).media_ids = asset.id
+    db.commit()
+    db.close()
 
     r = client.post(f"/api/projects/{pid}/scenes/{scene['id']}/generate-sequence")
     assert r.status_code == 200
@@ -197,3 +211,10 @@ def test_run_sequence_video(client):
     shots = client.get(f"/api/projects/{pid}/scenes/{scene['id']}/shots").json()
     assert all(s["media_ids"] for s in shots)
     assert len(client.get(f"/api/projects/{pid}/generations").json()) == 2
+
+
+def test_video_requires_refs(client):
+    pid = _create_project(client)
+    r = client.post(f"/api/projects/{pid}/generations", json={"kind": "video", "request": {"prompt": "x"}})
+    assert r.status_code == 404
+    assert "référence" in r.json()["detail"]

@@ -236,9 +236,11 @@ def _process_sequence(db: Session, task: Task) -> None:
         st = build_shot_prompt({"project_id": project_id, "shot_id": shot_id}, rt)
         prompt = st.get("prompt") or shot.action or shot.visual_intent or ""
         refs = _shot_refs(db, shot) or prev_refs
-        request: dict = {"prompt": prompt, "width": 864, "height": 480, "frames": 124}
-        if refs:
-            request["refs"] = refs[:3]
+        if not refs:
+            results.append({"shot_id": shot_id, "status": "failed",
+                            "error": "aucune image de référence pour ce plan (liez un visuel ou générez un keyframe)"})
+            continue
+        request: dict = {"prompt": prompt, "width": 864, "height": 480, "frames": 124, "refs": refs[:3]}
         gen = Generation(project_id=project_id, kind="video", status="pending",
                          request_snapshot=json.dumps(request, ensure_ascii=False))
         db.add(gen)
