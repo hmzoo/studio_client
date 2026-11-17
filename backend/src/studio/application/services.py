@@ -309,6 +309,9 @@ def create_shot(db: Session, scene_id: str, action: str = "", visual_intent: str
                 media_ids: list[str] | None = None) -> Shot:
     if db.get(Scene, scene_id) is None:
         raise ValueError("scène introuvable")
+    if order <= 0:
+        orders = [o for (o,) in db.query(Shot.order).filter(Shot.scene_id == scene_id).all()]
+        order = (max(orders) + 1) if orders else 0
     sh = Shot(
         scene_id=scene_id, action=action, visual_intent=visual_intent, order=order,
         character_ids=",".join(character_ids or []),
