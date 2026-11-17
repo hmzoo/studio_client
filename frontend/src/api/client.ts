@@ -21,8 +21,8 @@ export const api = {
 
   // références (personnages / environnements)
   listReferences: (pid: string, kind: string) => req<any[]>(`/api/projects/${pid}/references?kind=${kind}`),
-  createReference: (pid: string, kind: string, name: string) =>
-    req<any>(`/api/projects/${pid}/references`, json("POST", { kind, name })),
+  createReference: (pid: string, kind: string, name: string, description: string = "") =>
+    req<any>(`/api/projects/${pid}/references`, json("POST", { kind, name, description })),
   importReference: (pid: string, kind: string, rid: string, file: File) => {
     const fd = new FormData();
     fd.append("file", file);

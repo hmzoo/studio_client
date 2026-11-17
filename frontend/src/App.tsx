@@ -59,7 +59,7 @@ export default function App() {
   }
 
   async function createProject(name: string) { await api.createProject(name); refreshProjects(); }
-  async function createRef(name: string) { if (!pid) return; await api.createReference(pid, refKind, name); setRefs(await api.listReferences(pid, refKind)); }
+  async function createRef(name: string, description: string) { if (!pid) return; await api.createReference(pid, refKind, name, description); setRefs(await api.listReferences(pid, refKind)); }
   async function importFile(rid: string, file: File) { if (!pid) return; await api.importReference(pid, refKind, rid, file); setAssets(await api.listAssets(pid)); }
   async function analyze(rid: string) { if (!pid) return; await api.analyzeReference(pid, refKind, rid); await new Promise(r => setTimeout(r, 1500)); setProposals(await api.listProposals(pid)); setRefs(await api.listReferences(pid, refKind)); }
   async function decide(proposalId: string, status: string) { if (!pid) return; await api.decideProposal(pid, proposalId, status); setProposals(await api.listProposals(pid)); setRefs(await api.listReferences(pid, refKind)); }
@@ -105,13 +105,15 @@ export default function App() {
               <option value="character">Personnages</option>
               <option value="environment">Environnements</option>
             </select>
-            <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); createRef(String(f.get("name"))); (e.target as HTMLFormElement).reset(); }} style={{ display: "inline" }}>
+            <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); createRef(String(f.get("name")), String(f.get("description"))); (e.target as HTMLFormElement).reset(); }} style={{ display: "inline" }}>
               <input name="name" placeholder={`Nom (${refKind})`} />
+              <input name="description" placeholder="Description" style={{ width: 260 }} />
               <button>Ajouter</button>
             </form>
             {refs.map(r => (
               <div key={r.id} style={{ border: "1px solid #ddd", padding: 8, margin: 8 }}>
                 <b>{r.name}</b>
+                {r.initial_description && <p>{r.initial_description}</p>}
                 {r.approved_description && <p><i>Approuvé : {r.approved_description}</i></p>}
                 <input type="file" onChange={e => e.target.files && importFile(r.id, e.target.files[0])} />
                 <button onClick={() => analyze(r.id)}>Analyser (vision)</button>
