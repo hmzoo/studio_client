@@ -143,7 +143,7 @@ class HttpGenerationGatewayClient:
         d = r.json()
         return AssetMeta(
             asset_id=d.get("asset_id", ""),
-            url=self._abs(d.get("url", "")),
+            url=d.get("url", ""),  # URL relative : réutilisée telle quelle comme référence
             mime_type=d.get("mime_type", ""),
             width=d.get("width"),
             height=d.get("height"),
