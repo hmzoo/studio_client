@@ -130,5 +130,6 @@ class TaskOut(BaseModel):
     attempts: int
     max_attempts: int
     last_error: str | None = None
+    payload: str = ""
     created_at: datetime
     updated_at: datetime

@@ -19,7 +19,7 @@ from ..application.services import _run_analysis
 from ..clients import get_gateway
 from ..clients.interface import GatewayError, ImageRequest, TextRequest, VideoRequest
 from ..config import settings
-from ..domain.models import Asset, Character, Environment, Generation, Task
+from ..domain.models import Asset, Character, Environment, Generation, Shot, Task
 
 
 def process_task(db: Session, task: Task) -> None:
@@ -30,6 +30,9 @@ def process_task(db: Session, task: Task) -> None:
     if task.kind == "improve_reference":
         _run_improve_reference(db, task)
         task.status = "succeeded"
+        return
+    if task.kind == "run_sequence":
+        _process_sequence(db, task)
         return
     if task.kind == "generate_shot":
         _process_generate_shot(db, task)
@@ -210,3 +213,121 @@ def _download_result(db: Session, gen: Generation, result) -> None:
                 db.add(ref)
     gen.result = json.dumps(result, ensure_ascii=False, default=str)
     gen.status = "succeeded"
+
+
+def _process_sequence(db: Session, task: Task) -> None:
+    """Génère la suite des plans vidéo d'une scène, dans l'ordre."""
+    payload = json.loads(task.payload)
+    project_id = payload["project_id"]
+    shot_ids = payload["shots"]
+    results: list[dict] = []
+    prev_refs: list[str] = []
+    for i, shot_id in enumerate(shot_ids):
+        payload["current"] = i
+        payload["results"] = results
+        task.payload = json.dumps(payload, ensure_ascii=False)
+        db.commit()
+
+        shot = db.get(Shot, shot_id)
+        if shot is None:
+            results.append({"shot_id": shot_id, "status": "failed", "error": "plan introuvable"})
+            continue
+        rt = AgentRuntime(db=db, gateway=get_gateway())
+        st = build_shot_prompt({"project_id": project_id, "shot_id": shot_id}, rt)
+        prompt = st.get("prompt") or shot.action or shot.visual_intent or ""
+        refs = _shot_refs(db, shot) or prev_refs
+        request: dict = {"prompt": prompt, "width": 864, "height": 480, "frames": 124}
+        if refs:
+            request["refs"] = refs[:3]
+        gen = Generation(project_id=project_id, kind="video", status="pending",
+                         request_snapshot=json.dumps(request, ensure_ascii=False))
+        db.add(gen)
+        db.flush()
+        _generate_blocking(db, gen)
+        if gen.status == "succeeded":
+            _link_clip_to_shot(db, shot, gen)
+            prev_refs = refs
+        results.append({"shot_id": shot_id, "generation_id": gen.id, "status": gen.status,
+                        "error": (json.loads(gen.error or "{}") or {}).get("message") if gen.error else None})
+
+    payload["results"] = results
+    task.payload = json.dumps(payload, ensure_ascii=False)
+    task.status = "succeeded"
+
+
+def _generate_blocking(db: Session, gen: Generation) -> None:
+    """Soumet puis attend la fin d'une génération (utilisé par la séquence)."""
+    gw = get_gateway()
+    snapshot = json.loads(gen.request_snapshot or "{}")
+    if gen.kind == "image":
+        outcome = gw.generate_image(ImageRequest(**snapshot), async_exec=True)
+    elif gen.kind == "video":
+        outcome = gw.generate_video(VideoRequest(**snapshot), async_exec=True)
+    else:
+        gen.status = "failed"
+        gen.error = json.dumps({"code": "unsupported_kind", "message": f"kind non géré en séquence : {gen.kind}"})
+        db.commit()
+        return
+
+    if outcome.job is None:
+        _finalize_direct(db, gen, outcome.direct)
+        db.commit()
+        return
+    gen.external_job_id = outcome.job.job_id
+    gen.status = "running"
+    db.commit()
+
+    deadline = time.time() + settings.generation_max_track_seconds
+    while time.time() < deadline:
+        try:
+            st = gw.get_job(gen.external_job_id)
+        except GatewayError as e:
+            gen.status = "needs_reconciliation"
+            gen.error = json.dumps({"code": "track_failed", "message": str(e)[:300]}, ensure_ascii=False)
+            db.commit()
+            return
+        if st.status == "succeeded":
+            _finalize_job(db, gen, st.result)
+            db.commit()
+            return
+        if st.status == "failed":
+            gen.status = "failed"
+            gen.error = json.dumps(st.error or {"code": "generation_failed"}, ensure_ascii=False, default=str)
+            db.commit()
+            return
+        if st.status not in ("queued", "running"):
+            gen.status = "needs_reconciliation"
+            gen.error = json.dumps({"code": "unknown_external_state",
+                                    "message": f"état externe inconnu : {st.status}"}, ensure_ascii=False)
+            db.commit()
+            return
+        time.sleep(settings.generation_poll_interval)
+    gen.status = "needs_reconciliation"
+    gen.error = json.dumps({"code": "track_timeout", "message": "délai de suivi dépassé"}, ensure_ascii=False)
+    db.commit()
+
+
+def _shot_refs(db: Session, shot: Shot) -> list[str]:
+    ids = [i for i in (shot.media_ids or "").split(",") if i]
+    if not ids:
+        return []
+    return [a.external_url for a in db.query(Asset).filter(Asset.id.in_(ids)).all() if a.external_url]
+
+
+def _link_clip_to_shot(db: Session, shot: Shot, gen: Generation) -> None:
+    url = None
+    try:
+        res = json.loads(gen.result or "{}")
+        url = (res.get("video") or {}).get("url")
+    except Exception:  # noqa: BLE001
+        url = None
+    if not url:
+        return
+    asset = db.query(Asset).filter(Asset.external_url == url, Asset.project_id == gen.project_id).first()
+    if asset is None:
+        return
+    ids = [i for i in (shot.media_ids or "").split(",") if i]
+    if asset.id not in ids:
+        ids.append(asset.id)
+    shot.media_ids = ",".join(ids)
+    db.add(shot)

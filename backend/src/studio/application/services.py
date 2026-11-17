@@ -233,6 +233,20 @@ def request_shot_generation(db: Session, project_id: str, shot_id: str, kind: st
     return task
 
 
+def request_sequence(db: Session, project_id: str, scene_id: str) -> Task:
+    """Génère la suite des plans vidéo d'une scène, dans l'ordre (un instantané des plans)."""
+    shots = db.query(Shot).filter(Shot.scene_id == scene_id).order_by(Shot.order).all()
+    if not shots:
+        raise ValueError("la scène n'a pas encore de plan")
+    task = Task(kind="run_sequence", status="pending",
+                payload=json.dumps({"project_id": project_id, "scene_id": scene_id,
+                                    "shots": [s.id for s in shots], "current": -1, "results": []}))
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
 def request_improve_reference(db: Session, project_id: str, kind: str, ref_id: str) -> Task:
     """Amélioration de la description d'une référence (agent)."""
     get_reference(db, project_id, kind, ref_id)

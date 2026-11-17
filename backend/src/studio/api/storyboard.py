@@ -44,6 +44,15 @@ def generate_shot(project_id: str, scene_id: str, shot_id: str, db: Session = De
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.post("/scenes/{scene_id}/generate-sequence", response_model=TaskOut)
+def generate_sequence(project_id: str, scene_id: str, db: Session = Depends(get_db)):
+    """Génère la suite des plans vidéo de la scène, dans l'ordre."""
+    try:
+        return services.request_sequence(db, project_id, scene_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.delete("/scenes/{scene_id}/shots/{shot_id}")
 def delete_shot(project_id: str, scene_id: str, shot_id: str, db: Session = Depends(get_db)):
     try:

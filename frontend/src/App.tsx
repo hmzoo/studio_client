@@ -28,6 +28,7 @@ export default function App() {
   const [gens, setGens] = useState<Generation[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [genKind, setGenKind] = useState<"image" | "video" | "text">("image");
+  const [seqMsg, setSeqMsg] = useState<Record<string, string>>({});
 
   async function refreshProjects() {
     setErr("");
@@ -94,6 +95,36 @@ export default function App() {
     await new Promise(r => setTimeout(r, 3000));
     setGens(await api.listGenerations(pid));
     setAssets(await api.listAssets(pid));
+  }
+
+  async function generateSequence(sceneId: string) {
+    if (!pid) return;
+    setSeqMsg({ ...seqMsg, [sceneId]: "démarrage…" });
+    try {
+      const task = await api.generateSequence(pid, sceneId);
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 4000));
+        const t = await api.getTask(task.id);
+        let prog = "";
+        try {
+          const p = JSON.parse(t.payload || "{}");
+          const c = (p.current ?? -1) + 1;
+          const n = (p.shots || []).length;
+          prog = n ? ` (plan ${c}/${n})` : "";
+        } catch { /* payload pas encore JSON */ }
+        if (t.status === "succeeded") {
+          setSeqMsg({ ...seqMsg, [sceneId]: "séquence terminée ✓" + prog });
+          setShots({ ...shots, [sceneId]: await api.listShots(pid, sceneId) });
+          setGens(await api.listGenerations(pid));
+          setAssets(await api.listAssets(pid));
+          return;
+        }
+        if (t.status === "failed") { setSeqMsg({ ...seqMsg, [sceneId]: "échec : " + (t.last_error || "") }); return; }
+        if (t.status === "needs_reconciliation") { setSeqMsg({ ...seqMsg, [sceneId]: "à réconcilier" }); return; }
+        setSeqMsg({ ...seqMsg, [sceneId]: "en cours" + prog });
+      }
+      setSeqMsg({ ...seqMsg, [sceneId]: "délai dépassé" });
+    } catch (e) { setSeqMsg({ ...seqMsg, [sceneId]: "erreur : " + e }); }
   }
 
   const nameOf = (list: Ref[]) => (id: string) => list.find(r => r.id === id)?.name || id.slice(0, 6);
@@ -176,6 +207,8 @@ export default function App() {
                 <b>{s.title || `Scène ${s.order}`}</b>
                 <p>{s.narrative}</p>
                 <button onClick={() => toggleShots(s.id)}>Plans ({shots[s.id]?.length ?? "…"})</button>
+                <button onClick={() => generateSequence(s.id)}>🎬 Générer la séquence</button>
+                {seqMsg[s.id] && <small style={{ marginLeft: 8, color: "#666" }}>{seqMsg[s.id]}</small>}
                 <ShotForm sceneId={s.id} characters={characters} environments={environments} assets={assets} onCreate={createShot} />
                 {(shots[s.id] || []).map(sh => (
                   <div key={sh.id} style={{ marginLeft: 16, marginTop: 6, fontSize: 14, borderLeft: "2px solid #eee", paddingLeft: 8 }}>

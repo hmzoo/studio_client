@@ -160,3 +160,40 @@ def test_unknown_external_state(client):
 
     gen = client.get(f"/api/projects/{pid}/generations/{gen_id}").json()
     assert gen["status"] == "needs_reconciliation"
+
+
+def test_run_sequence_video(client):
+    pid = _create_project(client)
+    scene = client.post(f"/api/projects/{pid}/scenes", json={"title": "Scène 1", "narrative": "", "order": 0}).json()
+    for i in (0, 1):
+        r = client.post(f"/api/projects/{pid}/scenes/{scene['id']}/shots",
+                        json={"action": f"action {i}", "visual_intent": f"intention {i}", "order": i})
+        assert r.status_code == 200
+
+    r = client.post(f"/api/projects/{pid}/scenes/{scene['id']}/generate-sequence")
+    assert r.status_code == 200
+    task_id = r.json()["id"]
+
+    gw = MagicMock()
+    gw.simulated = True
+    gw.generate_text.return_value = type("T", (), {"text": "{}", "model": "mock", "schema_valid": True,
+                                                   "data": {"prompt": "un plan vidéo", "reference_image": None}})()
+    gw.generate_video.return_value = type("O", (), {"job": type("J", (), {"job_id": "vjob", "status": "queued"})(), "direct": None})()
+    gw.get_job.return_value = type("S", (), {"status": "succeeded",
+                                             "result": {"video": {"url": "fake://media/clip.mp4"}},
+                                             "error": None, "kind": "video"})()
+    gw.download_media.return_value = _TINY_PNG
+    with patch.object(workflow, "get_gateway", return_value=gw):
+        run_worker_once()
+
+    task = client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "succeeded"
+    payload = json.loads(task["payload"])
+    assert len(payload["results"]) == 2
+    assert all(r["status"] == "succeeded" for r in payload["results"])
+    assert gw.generate_video.call_count == 2
+
+    # les clips produits sont liés aux plans
+    shots = client.get(f"/api/projects/{pid}/scenes/{scene['id']}/shots").json()
+    assert all(s["media_ids"] for s in shots)
+    assert len(client.get(f"/api/projects/{pid}/generations").json()) == 2
